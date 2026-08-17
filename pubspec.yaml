@@ -10,7 +10,13 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # Both the version and the builder number may be overridden in flutter
 # build by specifying --build-name and --build-number, respectively.
 # In Android, build-name is used as versionName while build-number used as versionCode.
-#
+version: 1.0.0+1
+
+# Lower bound taken from pubspec.lock, which records what the existing
+# resolution actually needs (dart ">=3.9.0-0 <4.0.0"). With no constraint here
+# at all, pub refuses to resolve rather than guessing one.
+environment:
+  sdk: ">=3.9.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -18,7 +24,18 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
- 
+  # These four are imported across lib/ but were absent from this file, so the
+  # project resolved and then failed to compile. The versions are the ones
+  # already pinned in pubspec.lock, so restoring them resolves to exactly the
+  # packages this tree was built against — nothing is upgraded here.
+  cupertino_icons: ^1.0.8
+  dio: ^5.9.2 # lib/core/network/api_client.dart
+  flutter_svg: ^2.0.10+1 # icons and illustrations
+  form_field_validator: ^1.1.0 # sign-in and sign-up validation
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -42,30 +59,22 @@ flutter:
     - assets/images/
     - assets/Illustrations/
     - assets/icons/
-  #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
 
-  # For details regarding adding assets from package dependencies, see
-  # https://flutter.dev/assets-and-images/#from-packages
-
-  # To add custom fonts to your application, add a fonts section here,
-  # in this "flutter" section. Each entry in this list should have a
-  # "family" key with the font family name, and a "fonts" key with a
-  # list giving the asset and other descriptors for the font. For
-  # example:
-  # fonts:
-  #   - family: Schyler
-  #     fonts:
-  #       - asset: fonts/Schyler-Regular.ttf
-  #       - asset: fonts/Schyler-Italic.ttf
-  #         style: italic
-  #   - family: Trajan Pro
-  #     fonts:
-  #       - asset: fonts/TrajanPro.ttf
-  #       - asset: fonts/TrajanPro_Bold.ttf
-  #         weight: 700
-  #
-  # For details regarding fonts from package dependencies,
-  # see https://flutter.dev/custom-fonts/#from-packages
+  # The theme asks for "SF Pro Text" by name and the files were in the
+  # repository, but no fonts section declared them — so every screen fell back
+  # to the platform default. The layout was right and the typeface was not,
+  # which is the kind of bug that gets read as a design choice.
+  fonts:
+    - family: SF Pro Text
+      fonts:
+        - asset: assets/font/SF Pro Text/SFProText-Regular.ttf
+          weight: 400
+        - asset: assets/font/SF Pro Text/SFProText-Medium.ttf
+          weight: 500
+        - asset: assets/font/SF Pro Text/SFProText-Semibold.ttf
+          weight: 600
+        - asset: assets/font/SF Pro Text/SFProText-Bold.ttf
+          weight: 700
