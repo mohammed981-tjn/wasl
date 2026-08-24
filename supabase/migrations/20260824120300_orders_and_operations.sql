@@ -17,16 +17,10 @@
 -- عنوانًا وطنيًّا ولا اسم شارع — يعرف اسم فندقه ورقم غرفته وموعد مغادرته.
 -- فالنظام يسأله ما يعرف، ويحفظ موعد المغادرة لأنه **قيدٌ على وعد التسليم**:
 -- لا يجوز أن يَعِد النظام بتسليمٍ بعد أن يغادر صاحبه المدينة.
--- ═══ عزل المخطّط ═══════════════════════════════════════════════════════════
--- وصل يسكن schema باسمه لا `public`. والسبب أن المشروع مشترك مع تطبيق آخر
--- (AdCraft) على الخطّة نفسها: فـ`public` أرضٌ مشاعة تتصادم فيها الأسماء، و
--- schema مستقلّ يعطي فضاء أسماء خاصًّا، وسياسات خاصّة، وحذفًا نظيفًا بأمر
--- واحد (`drop schema wasl cascade`) لا يمسّ جدولًا لغيرنا.
---
--- ملاحظة نشر: PostgREST لا يكشف إلا `public` افتراضًا. فليُضَف `wasl` إلى
--- Exposed schemas في إعدادات API، وإلا فالجداول موجودة ولا تراها الواجهة.
-create schema if not exists wasl;
-set search_path = wasl, public, extensions;
+-- المشروع مخصَّص لوصل وحده، فالجداول تسكن `public` — وهو ما تفترضه أدوات
+-- Supabase كلّها: توليد الأنواع، وPostgREST، وعميل Flutter الذي يكتب
+-- `from('orders')` بلا وسيط. والامتدادات وحدها تُنحّى إلى `extensions`.
+set search_path = public, extensions;
 
 create type address_kind as enum ('home', 'work', 'hotel', 'other');
 
@@ -299,7 +293,7 @@ insert into order_transitions (from_status, to_status, allowed_roles) values
 -- كتابة السجلّ من التطبيق تعني أن أول استثناء يترك طلبًا انتقل بلا أثر.
 create or replace function enforce_order_transition()
 returns trigger
-language plpgsql security definer set search_path = wasl, public, extensions
+language plpgsql security definer set search_path = public, extensions
 as $$
 declare
   v_role app_role;

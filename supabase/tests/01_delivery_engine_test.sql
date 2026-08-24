@@ -7,8 +7,7 @@
 \set ON_ERROR_STOP on
 begin;
 
--- وصل يسكن schema باسمه؛ وجلسة psql لا تعرفه ما لم يُذكر.
-set local search_path = wasl, public, extensions;
+set local search_path = public, extensions;
 
 create or replace function assert_eq(actual anyelement, expected anyelement, label text)
 returns void language plpgsql as $$

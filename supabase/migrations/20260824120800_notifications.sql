@@ -11,8 +11,7 @@
 -- تحديث الحالة، ويعلق طلبٌ لأن رسالةً لم تُرسَل. الطابور يفصلهما: الحالة
 -- تُحفظ، والرسالة تُصفّ، وعاملٌ يرسل ويعيد المحاولة.
 
-create schema if not exists wasl;
-set search_path = wasl, public, extensions;
+set search_path = public, extensions;
 
 create type notification_channel as enum ('push', 'sms', 'whatsapp', 'email', 'in_app');
 create type notification_status  as enum ('queued', 'sent', 'failed', 'skipped');
@@ -123,7 +122,7 @@ $$;
 -- ─────────────────────────────────────────────────────────────────────────
 create or replace function queue_status_notifications()
 returns trigger
-language plpgsql security definer set search_path = wasl, public, extensions
+language plpgsql security definer set search_path = public, extensions
 as $$
 declare
   t     notification_templates%rowtype;
@@ -202,7 +201,7 @@ create trigger t_orders_queue_notifications
 
 -- تفضيلات المستخدم تُنشأ مع ملفّه
 create or replace function ensure_notification_prefs()
-returns trigger language plpgsql security definer set search_path = wasl, public, extensions
+returns trigger language plpgsql security definer set search_path = public, extensions
 as $$
 begin
   insert into notification_preferences (user_id) values (new.id)
@@ -232,8 +231,8 @@ declare t text;
 begin
   foreach t in array array['notification_templates','notification_preferences',
                            'device_tokens','notifications'] loop
-    execute format('alter table wasl.%I enable row level security', t);
-    execute format('alter table wasl.%I force row level security', t);
+    execute format('alter table public.%I enable row level security', t);
+    execute format('alter table public.%I force row level security', t);
   end loop;
 end $$;
 
@@ -265,7 +264,7 @@ create policy notifications_insert on notifications
 
 -- وحارسٌ على التعديل: صاحب الرسالة يعلّمها مقروءةً ولا يعيد كتابة نصّها.
 create or replace function guard_notification_update()
-returns trigger language plpgsql security definer set search_path = wasl, public, extensions
+returns trigger language plpgsql security definer set search_path = public, extensions
 as $$
 begin
   if auth_is_service_context() or auth_is_super_admin() then

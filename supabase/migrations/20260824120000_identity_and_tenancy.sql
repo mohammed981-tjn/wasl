@@ -10,27 +10,20 @@
 -- والمنصّة متعدّدة المغاسل والفروع من الجذر لا كترقية لاحقة: إضافة `branch_id`
 -- بعد امتلاء الجداول هجرةُ بيانات مؤلمة، وإضافتها اليوم عمود.
 
--- ═══ عزل المخطّط ═══════════════════════════════════════════════════════════
--- وصل يسكن schema باسمه لا `public`. والسبب أن المشروع مشترك مع تطبيق آخر
--- (AdCraft) على الخطّة نفسها: فـ`public` أرضٌ مشاعة تتصادم فيها الأسماء، و
--- schema مستقلّ يعطي فضاء أسماء خاصًّا، وسياسات خاصّة، وحذفًا نظيفًا بأمر
--- واحد (`drop schema wasl cascade`) لا يمسّ جدولًا لغيرنا.
---
--- ملاحظة نشر: PostgREST لا يكشف إلا `public` افتراضًا. فليُضَف `wasl` إلى
--- Exposed schemas في إعدادات API، وإلا فالجداول موجودة ولا تراها الواجهة.
-create schema if not exists wasl;
-set search_path = wasl, public, extensions;
+-- المشروع مخصَّص لوصل وحده، فالجداول تسكن `public` — وهو ما تفترضه أدوات
+-- Supabase كلّها: توليد الأنواع، وPostgREST، وعميل Flutter الذي يكتب
+-- `from('orders')` بلا وسيط. والامتدادات وحدها تُنحّى إلى `extensions`.
+set search_path = public, extensions;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- الامتدادات — في schema مشترك لا في schema وصل
 -- ─────────────────────────────────────────────────────────────────────────
--- `with schema extensions` ليست تجميلًا. بدونها تُثبَّت PostGIS داخل `wasl`
--- (لأنها تتبع أوّل schema في مسار البحث) — فتدخل تسعُ مئة دالّة مخطّطَنا،
--- **ويُسقِط `drop schema wasl cascade` يومًا PostGIS معه** فيتعطّل التطبيق
--- الشريك في المشروع نفسه. وهذا بالضبط ما يُراد تجنّبه: بقربه لا فوقه.
+-- `with schema extensions` ليست تجميلًا. بدونها تُثبَّت PostGIS في `public`
+-- فتدخل **تسعُ مئة دالّة** بين جداولنا: يغرق توليدُ الأنواع، وتمتلئ قوائم
+-- الاستكشاف، ويصير `drop`ُ جدولٍ بـcascade خطرًا لا يُقرأ أثره.
 --
 -- و`extensions` هو موضعها في Supabase أصلًا؛ و`if not exists` يجعل الأمر
--- لا يفعل شيئًا إن كانت مثبَّتةً هناك — أو في `public` — من قبل.
+-- لا يفعل شيئًا إن كانت مثبَّتةً من قبل.
 create schema if not exists extensions;
 
 create extension if not exists "uuid-ossp" with schema extensions;
@@ -181,7 +174,7 @@ create index on user_roles (branch_id);
 
 create or replace function auth_has_role(target app_role)
 returns boolean
-language sql stable security definer set search_path = wasl, public, extensions
+language sql stable security definer set search_path = public, extensions
 as $$
   select exists (
     select 1 from user_roles
@@ -191,7 +184,7 @@ $$;
 
 create or replace function auth_is_super_admin()
 returns boolean
-language sql stable security definer set search_path = wasl, public, extensions
+language sql stable security definer set search_path = public, extensions
 as $$
   select exists (
     select 1 from user_roles
@@ -203,7 +196,7 @@ $$;
 -- super_admin يمرّ دائمًا: نطاقه المنصّة كلها.
 create or replace function auth_has_branch_role(target_branch uuid, variadic targets app_role[])
 returns boolean
-language sql stable security definer set search_path = wasl, public, extensions
+language sql stable security definer set search_path = public, extensions
 as $$
   select auth_is_super_admin() or exists (
     select 1 from user_roles
@@ -216,7 +209,7 @@ $$;
 -- الفروع التي يملك المستخدم فيها أيّ دور تشغيلي — تُستعمل في سياسات القراءة.
 create or replace function auth_branch_ids()
 returns setof uuid
-language sql stable security definer set search_path = wasl, public, extensions
+language sql stable security definer set search_path = public, extensions
 as $$
   select branch_id from user_roles
   where user_id = auth.uid() and branch_id is not null;
@@ -225,18 +218,17 @@ $$;
 -- ─────────────────────────────────────────────────────────────────────────
 -- الملف الشخصي: إنشاءٌ كسول لا محفّز على auth.users
 -- ─────────────────────────────────────────────────────────────────────────
--- **قرارٌ يفرضه اشتراك المشروع.** Supabase له نظام مصادقة واحد لكل مشروع، و
--- `auth.users` لا يُقسَّم. فمحفّزٌ على إدراجها يُنشئ ملفَّ عميلِ مغسلةٍ لكل من
--- يسجّل في AdCraft — تلوّثٌ صامت يملأ جدولنا بمن لا علاقة له بنا، ويجعل
--- «كم عميلًا لدينا؟» سؤالًا بلا جواب صحيح. ولو أضاف التطبيق الآخر محفّزه
--- يومًا لتزاحم محفّزان على جدولٍ لا نملكه.
+-- النمط الشائع محفّزٌ على `auth.users` يُنشئ الملفّ عند التسجيل. وتُرك هنا
+-- عمدًا: `auth.users` جدولٌ يملكه Supabase ولا نملكه، ومحفّزٌ عليه يربط
+-- **تسجيلَ كل مستخدم** بنجاح شيفرتنا — فأيّ خطأ فيه يُفشل التسجيل نفسه
+-- برسالة `Database error saving new user` التي لا تدلّ على سببها.
 --
--- فالبديل: يُنشأ الملف حين يمسّ المستخدم **وصلًا** أوّل مرّة، لا حين يسجّل.
--- والتطبيق ينادي `ensure_profile()` بعد الدخول — نداءٌ واحد، ومُحايدٌ إن
--- تكرّر.
+-- فالبديل: يُنشأ الملفّ حين يمسّ المستخدم وصلًا أوّل مرّة. والتطبيق ينادي
+-- `ensure_profile()` بعد الدخول — نداءٌ واحد، ومُحايدٌ إن تكرّر، وفشلُه
+-- يظهر في مكانه لا في شاشة التسجيل.
 create or replace function ensure_profile(p_full_name text default null)
 returns profiles
-language plpgsql security definer set search_path = wasl, public, extensions
+language plpgsql security definer set search_path = public, extensions
 as $$
 declare
   v_user auth.users%rowtype;
@@ -265,7 +257,7 @@ end;
 $$;
 
 comment on function ensure_profile is
-  'يُنادى بعد الدخول. يُنشئ ملفّ وصل إن لم يوجد — فلا يتلوّث جدولنا بمستخدمي التطبيق الشريك في المشروع نفسه.';
+  'يُنادى بعد الدخول. يُنشئ الملفّ إن لم يوجد — بديلًا عن محفّزٍ على auth.users يربط التسجيل كلّه بنجاح شيفرتنا.';
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- updated_at

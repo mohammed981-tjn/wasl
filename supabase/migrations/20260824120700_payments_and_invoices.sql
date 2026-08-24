@@ -12,8 +12,7 @@
 --   ٣) **الاسترداد حركةٌ مستقلّة**: لا حقلٌ في الدفعة. جزئيًّا مرّتين ممكنٌ،
 --      ومجموعُه لا يتجاوز الأصل — قيدٌ لا مراجعة.
 
-create schema if not exists wasl;
-set search_path = wasl, public, extensions;
+set search_path = public, extensions;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- مزوّدو الدفع
@@ -116,7 +115,7 @@ create index on refunds (payment_id);
 -- هنا يخرج مالًا لا يعود.
 create or replace function enforce_refund_ceiling()
 returns trigger
-language plpgsql security definer set search_path = wasl, public, extensions
+language plpgsql security definer set search_path = public, extensions
 as $$
 declare
   v_paid     numeric;
@@ -155,7 +154,7 @@ create trigger t_refunds_ceiling
 -- يُشتقّ من الدفعات والاستردادات عند كل تغيّر، فلا ينحرف عن الحقيقة.
 create or replace function sync_order_payment_status()
 returns trigger
-language plpgsql security definer set search_path = wasl, public, extensions
+language plpgsql security definer set search_path = public, extensions
 as $$
 declare
   v_order     uuid;
@@ -276,14 +275,14 @@ create trigger t_tax_settings_touch before update on tax_settings
 grant select, insert, update, delete
   on payment_providers, payments, refunds, tax_settings, invoices to authenticated;
 grant select on payment_providers, tax_settings to anon;
-grant usage, select on all sequences in schema wasl to authenticated;
+grant usage, select on all sequences in schema public to authenticated;
 
 do $$
 declare t text;
 begin
   foreach t in array array['payment_providers','payments','refunds','tax_settings','invoices'] loop
-    execute format('alter table wasl.%I enable row level security', t);
-    execute format('alter table wasl.%I force row level security', t);
+    execute format('alter table public.%I enable row level security', t);
+    execute format('alter table public.%I force row level security', t);
   end loop;
 end $$;
 

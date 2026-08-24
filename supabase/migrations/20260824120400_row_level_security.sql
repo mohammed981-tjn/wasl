@@ -14,29 +14,23 @@
 -- الصلاحيات الأساسية
 -- ─────────────────────────────────────────────────────────────────────────
 -- RLS ترشّح ما يُرى؛ وGRANT تقرّر ما يُمكن أصلًا. بلا المنح لا تصل السياسة.
--- ═══ عزل المخطّط ═══════════════════════════════════════════════════════════
--- وصل يسكن schema باسمه لا `public`. والسبب أن المشروع مشترك مع تطبيق آخر
--- (AdCraft) على الخطّة نفسها: فـ`public` أرضٌ مشاعة تتصادم فيها الأسماء، و
--- schema مستقلّ يعطي فضاء أسماء خاصًّا، وسياسات خاصّة، وحذفًا نظيفًا بأمر
--- واحد (`drop schema wasl cascade`) لا يمسّ جدولًا لغيرنا.
---
--- ملاحظة نشر: PostgREST لا يكشف إلا `public` افتراضًا. فليُضَف `wasl` إلى
--- Exposed schemas في إعدادات API، وإلا فالجداول موجودة ولا تراها الواجهة.
-create schema if not exists wasl;
-set search_path = wasl, public, extensions;
+-- المشروع مخصَّص لوصل وحده، فالجداول تسكن `public` — وهو ما تفترضه أدوات
+-- Supabase كلّها: توليد الأنواع، وPostgREST، وعميل Flutter الذي يكتب
+-- `from('orders')` بلا وسيط. والامتدادات وحدها تُنحّى إلى `extensions`.
+set search_path = public, extensions;
 
-grant usage on schema wasl to anon, authenticated;
-grant select, insert, update, delete on all tables in schema wasl to authenticated;
-grant select on all tables in schema wasl to anon;
-grant execute on all functions in schema wasl to anon, authenticated;
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant select on all tables in schema public to anon;
+grant execute on all functions in schema public to anon, authenticated;
 
 -- المتسلسلات تحتاج منحًا مستقلًا: عمود identity في orders يقرأ متسلسلة، ومن
 -- لا يملكها يفشل عند الإدراج برسالةٍ لا تذكر المتسلسلة إطلاقًا.
-grant usage, select on all sequences in schema wasl to authenticated;
+grant usage, select on all sequences in schema public to authenticated;
 
-alter default privileges in schema wasl
+alter default privileges in schema public
   grant select, insert, update, delete on tables to authenticated;
-alter default privileges in schema wasl
+alter default privileges in schema public
   grant usage, select on sequences to authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────
@@ -54,10 +48,10 @@ begin
     'addresses','orders','order_items','order_garments','order_events',
     'order_proofs','order_delivery_codes','order_transitions'
   ] loop
-    execute format('alter table wasl.%I enable row level security', t);
+    execute format('alter table public.%I enable row level security', t);
     -- force كي تنطبق السياسة على مالك الجدول أيضًا. بدونها يتجاوزها المالك
     -- بصمت، فيبدو الاختبار ناجحًا وهو لم يمرّ بسياسة أصلًا.
-    execute format('alter table wasl.%I force row level security', t);
+    execute format('alter table public.%I force row level security', t);
   end loop;
 end $$;
 
@@ -216,7 +210,7 @@ create policy addresses_operational_read on addresses
 -- تُكتب القاعدة خمس مرّات فتفترق خمس نتائج عند أول تعديل.
 create or replace function can_see_order(p_order uuid)
 returns boolean
-language sql stable security definer set search_path = wasl, public, extensions
+language sql stable security definer set search_path = public, extensions
 as $$
   select exists (
     select 1 from orders o
@@ -298,7 +292,7 @@ $$;
 -- ═════════════════════════════════════════════════════════════════════════
 -- السياسة تحرس الصفّ. فمن يملك «عدّل ملفّك» يملك كل عمود فيه — ومنها الحظر.
 create or replace function guard_profile_columns()
-returns trigger language plpgsql security definer set search_path = wasl, public, extensions as $$
+returns trigger language plpgsql security definer set search_path = public, extensions as $$
 begin
   if auth_is_service_context() or auth_is_super_admin() or auth_has_role('customer_service') then
     return new;
@@ -320,7 +314,7 @@ create trigger t_profiles_guard before update on profiles
 -- تصعيد الامتيازات: مدير الفرع يوظّف ويفصل في فرعه — ولا يصنع super_admin،
 -- ولا يمنح دورًا في فرعٍ ليس فرعه. سياسةٌ واحدة لا تفرّق بين هذه الحالات.
 create or replace function guard_role_grants()
-returns trigger language plpgsql security definer set search_path = wasl, public, extensions as $$
+returns trigger language plpgsql security definer set search_path = public, extensions as $$
 begin
   if auth_is_service_context() or auth_is_super_admin() then
     return new;
@@ -352,7 +346,7 @@ create trigger t_user_roles_guard before insert or update on user_roles
 -- والمبالغ: العميل لا يكتب `total` الخاص به. تُحسب من البنود ورسم التوصيل،
 -- ولا تُقبل من الواجهة بعد إرسال الطلب.
 create or replace function guard_order_amounts()
-returns trigger language plpgsql security definer set search_path = wasl, public, extensions as $$
+returns trigger language plpgsql security definer set search_path = public, extensions as $$
 begin
   if auth_is_service_context() or auth_is_super_admin()
      or auth_has_branch_role(new.branch_id, 'branch_manager', 'accountant') then

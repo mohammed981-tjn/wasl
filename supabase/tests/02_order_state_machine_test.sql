@@ -8,8 +8,7 @@
 \set ON_ERROR_STOP on
 begin;
 
--- وصل يسكن schema باسمه؛ وجلسة psql لا تعرفه ما لم يُذكر.
-set local search_path = wasl, public, extensions;
+set local search_path = public, extensions;
 
 create or replace function expect_fail(sql_text text, label text)
 returns void language plpgsql as $$
@@ -45,8 +44,8 @@ insert into branches (id, laundry_id, name_ar, location)
 values ('22222222-2222-2222-2222-333333333333', '11111111-1111-1111-1111-111111111111',
         'فرع قباء', st_point(39.6180, 24.4390)::geography);
 
--- المستخدمون. لا محفّز على auth.users (انظر مهاجرة الهوية): التسجيل في
--- المشروع المشترك لا يصنع عميلَ مغسلة. الملفّ يُنشأ بنداء ensure_profile.
+-- المستخدمون. لا محفّز على auth.users (انظر مهاجرة الهوية): محفّزٌ عليه يربط
+-- تسجيلَ كل مستخدم بنجاح شيفرتنا. الملفّ يُنشأ بنداء ensure_profile.
 insert into auth.users (id, phone) values
   ('a0000000-0000-0000-0000-000000000001', '+966500000001'), -- عميل
   ('a0000000-0000-0000-0000-000000000002', '+966500000002'), -- عميل آخر
@@ -58,9 +57,9 @@ insert into auth.users (id, phone) values
 -- العزل: التسجيل وحده لا يصنع ملفًّا في وصل.
 do $$ begin
   if (select count(*) from profiles) <> 0 then
-    raise exception '✗ العزل: أُنشئ ملفّ وصل بمجرّد التسجيل';
+    raise exception '✗ العزل: أُنشئ ملفّ بمجرّد التسجيل في auth';
   end if;
-  raise notice '✓ العزل: التسجيل في المشروع المشترك لا يصنع عميل مغسلة';
+  raise notice '✓ العزل: التسجيل في auth وحده لا يُنشئ ملفًّا — لا محفّز نعتمد عليه';
 end $$;
 
 -- ولا يُنشأ إلا حين يمسّ المستخدم وصلًا بنفسه.

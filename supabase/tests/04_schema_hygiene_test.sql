@@ -1,0 +1,139 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- اختبار نظافة المخطّط والأمان البنيويّ
+-- ═══════════════════════════════════════════════════════════════════════════
+-- حارسُ انحدار: هذه ثغراتٌ لا تظهر في اختبارٍ وظيفيّ. جدولٌ يُضاف غدًا بلا
+-- RLS يعمل تمامًا — ويُقرأ من الجميع. وجدولٌ بـRLS وبلا سياسة يعمل تمامًا —
+-- ولا يقرؤه أحد، فتظهر «شاشةٌ فارغة» لا خطأ. كلاهما يُمسك هنا أو في الإنتاج.
+
+\set ON_ERROR_STOP on
+begin;
+
+set local search_path = public, extensions;
+
+do $$
+declare n int; names text;
+begin
+  -- ١) الامتدادات في `extensions` لا في `public`
+  -- PostGIS وحدها تسع مئة دالّة: تركُها في public يُغرق توليد الأنواع
+  -- وقوائم الاستكشاف، ويجعل cascade خطرًا لا يُقرأ أثره.
+  select count(*) into n
+  from pg_extension e join pg_namespace ns on ns.oid = e.extnamespace
+  where ns.nspname = 'public';
+  if n <> 0 then
+    raise exception '✗ النظافة: % امتدادًا في public — موضعها extensions', n;
+  end if;
+  raise notice '✓ النظافة: لا امتداد في public';
+
+  -- ٢) ودوالّنا وحدها فيه: عددٌ كبير يعني امتدادًا تسرّب
+  select count(*) into n
+  from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
+  where ns.nspname = 'public';
+  if n > 60 then
+    raise exception '✗ النظافة: % دالّة في public — امتدادٌ تسرّب إليه', n;
+  end if;
+  raise notice '✓ النظافة: % دالّة في public — دوالّنا وحدها', n;
+
+  -- ٣) RLS مفعّلة على كل جدول، بلا استثناء منسيّ
+  select count(*), string_agg(t.tablename, '، ') into n, names
+  from pg_tables t
+  join pg_class c on c.relname = t.tablename
+  join pg_namespace ns on ns.oid = c.relnamespace and ns.nspname = t.schemaname
+  where t.schemaname = 'public' and not c.relrowsecurity;
+  if n <> 0 then
+    raise exception '✗ ثغرة: % جدولًا بلا RLS — يُقرأ من الجميع: %', n, names;
+  end if;
+  raise notice '✓ الأمان: RLS مفعّلة على كل جدول';
+
+  -- ٤) و`force` كذلك: بدونها يتجاوزها مالك الجدول بصمت، فيبدو الاختبار
+  -- ناجحًا وهو لم يمرّ بسياسةٍ أصلًا
+  select count(*), string_agg(t.tablename, '، ') into n, names
+  from pg_tables t
+  join pg_class c on c.relname = t.tablename
+  join pg_namespace ns on ns.oid = c.relnamespace and ns.nspname = t.schemaname
+  where t.schemaname = 'public' and not c.relforcerowsecurity;
+  if n <> 0 then
+    raise exception '✗ ثغرة: % جدولًا بلا force RLS: %', n, names;
+  end if;
+  raise notice '✓ الأمان: force RLS مفعّلة على كل جدول';
+
+  -- ٥) ولا جدول بـRLS وبلا سياسة: يعمل تمامًا ولا يقرؤه أحد
+  select count(*), string_agg(t.tablename, '، ') into n, names
+  from pg_tables t
+  where t.schemaname = 'public'
+    and not exists (select 1 from pg_policies p
+                    where p.schemaname = 'public' and p.tablename = t.tablename);
+  if n <> 0 then
+    raise exception '✗ عطل: % جدولًا بـRLS وبلا سياسة — شاشةٌ فارغة لا خطأ: %', n, names;
+  end if;
+  raise notice '✓ الأمان: كل جدول له سياسة واحدة على الأقل';
+
+  -- ٦) كل دالّة بمسار بحثٍ مثبَّت — لا `security definer` وحدها.
+  -- كان هذا الفحص مقصورًا عليها، ومدقّق Supabase أمسك ثلاث عشرة دالّة عادية
+  -- فاتته. والعادية تعمل بصلاحية مناديها، لكنها تُستدعى من داخل سياسات RLS
+  -- ومن المحفّزات — ومسارٌ قابل للتلاعب يجعلها تحلّ اسم جدولٍ إلى جدولٍ يزرعه
+  -- المهاجم في schema يسبقنا.
+  select count(*), string_agg(p.proname, '، ') into n, names
+  from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
+  where ns.nspname = 'public' and p.prokind = 'f'
+    and not exists (
+      select 1 from unnest(coalesce(p.proconfig, '{}')) cfg
+      where cfg like 'search_path=%');
+  if n <> 0 then
+    raise exception '✗ ثغرة: % دالّة بلا search_path مثبَّت: %', n, names;
+  end if;
+  raise notice '✓ الأمان: كل دالّة بمسار بحثٍ مثبَّت';
+
+  -- ٧) لا دالّة محفّزٍ مكشوفةٌ على الواجهة.
+  -- `grant execute on all functions` يكشف الحرّاس أنفسهم عبر /rest/v1/rpc/ —
+  -- وهي ليست واجهةً يُنادى منها بل حرّاسٌ يستدعيهم Postgres بصلاحية مالك
+  -- الجدول. كشفُها يوسّع سطح الهجوم بلا مقابل.
+  select count(*), string_agg(p.proname, '، ') into n, names
+  from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
+  where ns.nspname = 'public' and p.prorettype = 'trigger'::regtype
+    and (has_function_privilege('anon', p.oid, 'execute')
+      or has_function_privilege('authenticated', p.oid, 'execute'));
+  if n <> 0 then
+    raise exception '✗ سطح هجوم: % دالّة محفّز مكشوفة على الواجهة: %', n, names;
+  end if;
+  raise notice '✓ الأمان: لا دالّة محفّز مكشوفة على الواجهة';
+end $$;
+
+-- ٧) لا محفّز لنا على auth.users.
+-- Supabase يملك هذا الجدول ولا نملكه؛ ومحفّزٌ عليه يربط تسجيلَ كل مستخدم
+-- بنجاح شيفرتنا — فيفشل التسجيل نفسه إن أخطأنا.
+do $$
+declare n int;
+begin
+  select count(*) into n from pg_trigger tg
+  join pg_class c on c.oid = tg.tgrelid
+  join pg_namespace ns on ns.oid = c.relnamespace
+  where ns.nspname = 'auth' and c.relname = 'users' and not tg.tgisinternal;
+  if n <> 0 then
+    raise exception '✗ % محفّزًا على auth.users — تسجيلُ كل مستخدم مرهونٌ بشيفرتنا', n;
+  end if;
+  raise notice '✓ العزل: لا محفّز على auth.users';
+end $$;
+
+-- ٨) كل مفتاح أجنبيّ مفهرس. غيابُ الفهرس لا يُفسد نتيجةً — يُبطئ كل استعلام
+-- ربطٍ بصمت، ويجعل حذفَ الأب مسحًا كاملًا للابن.
+do $$
+declare n int; names text;
+begin
+  select count(*), string_agg(format('%s.%s', c.relname, a.attname), '، ')
+    into n, names
+  from pg_constraint fk
+  join pg_class c on c.oid = fk.conrelid
+  join pg_namespace ns on ns.oid = c.relnamespace and ns.nspname = 'public'
+  join pg_attribute a on a.attrelid = c.oid and a.attnum = fk.conkey[1]
+  where fk.contype = 'f'
+    and array_length(fk.conkey, 1) = 1
+    and not exists (
+      select 1 from pg_index i
+      where i.indrelid = fk.conrelid and i.indkey[0] = fk.conkey[1]);
+  if n > 0 then
+    raise exception '✗ الأداء: % مفتاحًا أجنبيًّا بلا فهرس: %', n, names;
+  end if;
+  raise notice '✓ الأداء: كل مفتاح أجنبيّ مفهرس';
+end $$;
+
+rollback;

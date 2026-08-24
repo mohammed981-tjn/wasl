@@ -13,8 +13,7 @@
 --   ٤) مهلةٌ من الآن — لا موعد بعد دقيقتين  (lead_time_minutes)
 --   ٥) أيام التعطيل والإغلاق الطارئ         (slot_blackouts)
 
-create schema if not exists wasl;
-set search_path = wasl, public, extensions;
+set search_path = public, extensions;
 
 create type slot_kind as enum ('pickup', 'delivery');
 
@@ -250,7 +249,7 @@ $$;
 -- حقيقيّ أيضًا: عميلان يريان الفتحة نفسها متاحةً ويحجزان معًا.
 create or replace function enforce_slot_availability()
 returns trigger
-language plpgsql security definer set search_path = wasl, public, extensions
+language plpgsql security definer set search_path = public, extensions
 as $$
 declare
   v_ok boolean;

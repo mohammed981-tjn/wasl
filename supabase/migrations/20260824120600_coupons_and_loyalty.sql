@@ -7,8 +7,7 @@
 -- واتساب فيُستهلك آلاف المرّات في ساعة، وكوبونٌ بلا «مرّة لكل عميل» يُعاد
 -- استعماله كل طلب. ولذلك جدول استخداماتٍ منفصل وقيدٌ فريد عليه — لا عدّاد.
 
-create schema if not exists wasl;
-set search_path = wasl, public, extensions;
+set search_path = public, extensions;
 
 create type coupon_kind as enum ('percentage', 'fixed', 'free_delivery');
 
@@ -272,7 +271,7 @@ $$;
 -- كسبُ نقاطٍ على خصمٍ لم يُدفع يصنع دورةً تُموّل نفسها.
 create or replace function award_loyalty_on_delivery()
 returns trigger
-language plpgsql security definer set search_path = wasl, public, extensions
+language plpgsql security definer set search_path = public, extensions
 as $$
 declare
   s loyalty_settings%rowtype;
@@ -323,8 +322,8 @@ do $$
 declare t text;
 begin
   foreach t in array array['coupons','coupon_redemptions','loyalty_settings','loyalty_transactions'] loop
-    execute format('alter table wasl.%I enable row level security', t);
-    execute format('alter table wasl.%I force row level security', t);
+    execute format('alter table public.%I enable row level security', t);
+    execute format('alter table public.%I force row level security', t);
   end loop;
 end $$;
 
