@@ -8,6 +8,9 @@
 \set ON_ERROR_STOP on
 begin;
 
+-- وصل يسكن schema باسمه؛ وجلسة psql لا تعرفه ما لم يُذكر.
+set local search_path = wasl, public, extensions;
+
 create or replace function count_visible(q text)
 returns bigint language plpgsql as $$
 declare n bigint;
@@ -70,6 +73,11 @@ insert into auth.users (id, phone) values
   ('a0000000-0000-0000-0000-000000000004', '+966500000004'), -- سائق المركز
   ('a0000000-0000-0000-0000-000000000005', '+966500000005'), -- موظّف قباء
   ('a0000000-0000-0000-0000-000000000009', '+966500000009'); -- super_admin
+
+-- لا محفّز على auth.users بعد عزل المخطّط، فالملفّات تُنشأ صراحةً هنا
+-- (سياق خادميّ) كما ينشئها ensure_profile عند أوّل دخول حقيقيّ.
+insert into profiles (id, phone)
+select id, phone from auth.users;
 
 insert into user_roles (user_id, role, laundry_id, branch_id) values
   ('a0000000-0000-0000-0000-000000000003', 'branch_manager',

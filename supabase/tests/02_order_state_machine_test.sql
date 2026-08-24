@@ -8,6 +8,9 @@
 \set ON_ERROR_STOP on
 begin;
 
+-- وصل يسكن schema باسمه؛ وجلسة psql لا تعرفه ما لم يُذكر.
+set local search_path = wasl, public, extensions;
+
 create or replace function expect_fail(sql_text text, label text)
 returns void language plpgsql as $$
 begin
@@ -42,8 +45,8 @@ insert into branches (id, laundry_id, name_ar, location)
 values ('22222222-2222-2222-2222-333333333333', '11111111-1111-1111-1111-111111111111',
         'فرع قباء', st_point(39.6180, 24.4390)::geography);
 
--- المستخدمون. المحفّز on_auth_user_created ينشئ profiles و user_roles تلقائيًا،
--- فالإدراج في auth.users وحده يجب أن يكفي — وهذا في ذاته اختبار.
+-- المستخدمون. لا محفّز على auth.users (انظر مهاجرة الهوية): التسجيل في
+-- المشروع المشترك لا يصنع عميلَ مغسلة. الملفّ يُنشأ بنداء ensure_profile.
 insert into auth.users (id, phone) values
   ('a0000000-0000-0000-0000-000000000001', '+966500000001'), -- عميل
   ('a0000000-0000-0000-0000-000000000002', '+966500000002'), -- عميل آخر
@@ -52,14 +55,51 @@ insert into auth.users (id, phone) values
   ('a0000000-0000-0000-0000-000000000005', '+966500000005'), -- موظف مغسلة (المركز)
   ('a0000000-0000-0000-0000-000000000006', '+966500000006'); -- موظف مغسلة (قباء)
 
+-- العزل: التسجيل وحده لا يصنع ملفًّا في وصل.
 do $$ begin
+  if (select count(*) from profiles) <> 0 then
+    raise exception '✗ العزل: أُنشئ ملفّ وصل بمجرّد التسجيل';
+  end if;
+  raise notice '✓ العزل: التسجيل في المشروع المشترك لا يصنع عميل مغسلة';
+end $$;
+
+-- ولا يُنشأ إلا حين يمسّ المستخدم وصلًا بنفسه.
+do $$
+declare u uuid;
+begin
+  foreach u in array array[
+    'a0000000-0000-0000-0000-000000000001'::uuid,
+    'a0000000-0000-0000-0000-000000000002'::uuid,
+    'a0000000-0000-0000-0000-000000000003'::uuid,
+    'a0000000-0000-0000-0000-000000000004'::uuid,
+    'a0000000-0000-0000-0000-000000000005'::uuid,
+    'a0000000-0000-0000-0000-000000000006'::uuid]
+  loop
+    perform auth.login_as(u);
+    perform ensure_profile();
+  end loop;
+  perform auth.logout();
+
   if (select count(*) from profiles) <> 6 then
-    raise exception '✗ المحفّز: لم يُنشأ ملف شخصي لكل مستخدم';
+    raise exception '✗ ensure_profile: توقّعنا 6 ملفّات وجاء %', (select count(*) from profiles);
   end if;
   if (select count(*) from user_roles where role = 'customer') <> 6 then
-    raise exception '✗ المحفّز: لم يُمنح دور customer تلقائيًا';
+    raise exception '✗ ensure_profile: لم يُمنح دور customer';
   end if;
-  raise notice '✓ المحفّز: ملف شخصي ودور customer أُنشئا لكل مستخدم جديد';
+  raise notice '✓ ensure_profile: أنشأ ملفًّا ودور customer لمن دخل وصلًا';
+end $$;
+
+-- ومحايدٌ إن تكرّر: النداء مرّتين لا يضاعف الدور.
+do $$ begin
+  perform auth.login_as('a0000000-0000-0000-0000-000000000001');
+  perform ensure_profile();
+  perform ensure_profile();
+  perform auth.logout();
+  if (select count(*) from user_roles
+      where user_id = 'a0000000-0000-0000-0000-000000000001' and role = 'customer') <> 1 then
+    raise exception '✗ ensure_profile: تكرار النداء ضاعف الدور';
+  end if;
+  raise notice '✓ ensure_profile: محايد عند التكرار — لا دور مكرَّر';
 end $$;
 
 insert into user_roles (user_id, role, laundry_id, branch_id) values

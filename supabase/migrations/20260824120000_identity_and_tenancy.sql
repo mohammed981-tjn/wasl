@@ -10,11 +10,36 @@
 -- والمنصّة متعدّدة المغاسل والفروع من الجذر لا كترقية لاحقة: إضافة `branch_id`
 -- بعد امتلاء الجداول هجرةُ بيانات مؤلمة، وإضافتها اليوم عمود.
 
-create extension if not exists "uuid-ossp";
-create extension if not exists postgis;
+-- ═══ عزل المخطّط ═══════════════════════════════════════════════════════════
+-- وصل يسكن schema باسمه لا `public`. والسبب أن المشروع مشترك مع تطبيق آخر
+-- (AdCraft) على الخطّة نفسها: فـ`public` أرضٌ مشاعة تتصادم فيها الأسماء، و
+-- schema مستقلّ يعطي فضاء أسماء خاصًّا، وسياسات خاصّة، وحذفًا نظيفًا بأمر
+-- واحد (`drop schema wasl cascade`) لا يمسّ جدولًا لغيرنا.
+--
+-- ملاحظة نشر: PostgREST لا يكشف إلا `public` افتراضًا. فليُضَف `wasl` إلى
+-- Exposed schemas في إعدادات API، وإلا فالجداول موجودة ولا تراها الواجهة.
+create schema if not exists wasl;
+set search_path = wasl, public, extensions;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- الامتدادات — في schema مشترك لا في schema وصل
+-- ─────────────────────────────────────────────────────────────────────────
+-- `with schema extensions` ليست تجميلًا. بدونها تُثبَّت PostGIS داخل `wasl`
+-- (لأنها تتبع أوّل schema في مسار البحث) — فتدخل تسعُ مئة دالّة مخطّطَنا،
+-- **ويُسقِط `drop schema wasl cascade` يومًا PostGIS معه** فيتعطّل التطبيق
+-- الشريك في المشروع نفسه. وهذا بالضبط ما يُراد تجنّبه: بقربه لا فوقه.
+--
+-- و`extensions` هو موضعها في Supabase أصلًا؛ و`if not exists` يجعل الأمر
+-- لا يفعل شيئًا إن كانت مثبَّتةً هناك — أو في `public` — من قبل.
+create schema if not exists extensions;
+
+create extension if not exists "uuid-ossp" with schema extensions;
+create extension if not exists postgis     with schema extensions;
 -- btree_gist يلزم لقيد الاستبعاد في شرائح المسافة: مزج `uuid with =` مع مدى
 -- رقميّ في فهرس GiST واحد لا يعمل بدونها.
-create extension if not exists btree_gist;
+create extension if not exists btree_gist  with schema extensions;
+
+grant usage on schema extensions to anon, authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- الأدوار
@@ -137,6 +162,12 @@ create table user_roles (
   )
 );
 
+-- NULL لا تساوي NULL في فهرس فريد، فقيد `unique (user_id, role, branch_id)`
+-- لا يمنع تكرار دورٍ بلا فرع: كل نداء لـensure_profile يُدرج صفَّ customer
+-- جديدًا. الفهرس الجزئيّ يسدّ ذلك.
+create unique index user_roles_unscoped_uniq on user_roles (user_id, role)
+  where branch_id is null;
+
 create index on user_roles (user_id);
 create index on user_roles (branch_id);
 
@@ -150,7 +181,7 @@ create index on user_roles (branch_id);
 
 create or replace function auth_has_role(target app_role)
 returns boolean
-language sql stable security definer set search_path = public
+language sql stable security definer set search_path = wasl, public, extensions
 as $$
   select exists (
     select 1 from user_roles
@@ -160,7 +191,7 @@ $$;
 
 create or replace function auth_is_super_admin()
 returns boolean
-language sql stable security definer set search_path = public
+language sql stable security definer set search_path = wasl, public, extensions
 as $$
   select exists (
     select 1 from user_roles
@@ -172,7 +203,7 @@ $$;
 -- super_admin يمرّ دائمًا: نطاقه المنصّة كلها.
 create or replace function auth_has_branch_role(target_branch uuid, variadic targets app_role[])
 returns boolean
-language sql stable security definer set search_path = public
+language sql stable security definer set search_path = wasl, public, extensions
 as $$
   select auth_is_super_admin() or exists (
     select 1 from user_roles
@@ -185,43 +216,56 @@ $$;
 -- الفروع التي يملك المستخدم فيها أيّ دور تشغيلي — تُستعمل في سياسات القراءة.
 create or replace function auth_branch_ids()
 returns setof uuid
-language sql stable security definer set search_path = public
+language sql stable security definer set search_path = wasl, public, extensions
 as $$
   select branch_id from user_roles
   where user_id = auth.uid() and branch_id is not null;
 $$;
 
 -- ─────────────────────────────────────────────────────────────────────────
--- إنشاء الملف الشخصي تلقائيًا عند التسجيل
+-- الملف الشخصي: إنشاءٌ كسول لا محفّز على auth.users
 -- ─────────────────────────────────────────────────────────────────────────
--- بلا هذا يسجّل المستخدم في auth.users ولا يوجد له صفّ في profiles، فتفشل كل
--- سياسة تربط به — بلا رسالة خطأ مفهومة.
-create or replace function handle_new_user()
-returns trigger
-language plpgsql security definer set search_path = public
+-- **قرارٌ يفرضه اشتراك المشروع.** Supabase له نظام مصادقة واحد لكل مشروع، و
+-- `auth.users` لا يُقسَّم. فمحفّزٌ على إدراجها يُنشئ ملفَّ عميلِ مغسلةٍ لكل من
+-- يسجّل في AdCraft — تلوّثٌ صامت يملأ جدولنا بمن لا علاقة له بنا، ويجعل
+-- «كم عميلًا لدينا؟» سؤالًا بلا جواب صحيح. ولو أضاف التطبيق الآخر محفّزه
+-- يومًا لتزاحم محفّزان على جدولٍ لا نملكه.
+--
+-- فالبديل: يُنشأ الملف حين يمسّ المستخدم **وصلًا** أوّل مرّة، لا حين يسجّل.
+-- والتطبيق ينادي `ensure_profile()` بعد الدخول — نداءٌ واحد، ومُحايدٌ إن
+-- تكرّر.
+create or replace function ensure_profile(p_full_name text default null)
+returns profiles
+language plpgsql security definer set search_path = wasl, public, extensions
 as $$
+declare
+  v_user auth.users%rowtype;
+  v_profile profiles%rowtype;
 begin
-  insert into profiles (id, phone, email, full_name)
-  values (
-    new.id,
-    new.phone,
-    new.email,
-    coalesce(new.raw_user_meta_data->>'full_name', '')
-  )
-  on conflict (id) do nothing;
+  if auth.uid() is null then
+    raise exception 'لا جلسة' using errcode = 'insufficient_privilege';
+  end if;
 
-  -- كل مستخدم جديد عميل حتى يُرقّى. ولا يُمنح دور تشغيليّ إلا بإسناد صريح.
+  select * into v_user from auth.users where id = auth.uid();
+
+  insert into profiles (id, phone, email, full_name)
+  values (auth.uid(), v_user.phone, v_user.email,
+          coalesce(p_full_name, v_user.raw_user_meta_data->>'full_name', ''))
+  on conflict (id) do update
+    set full_name = coalesce(excluded.full_name, profiles.full_name)
+  returning * into v_profile;
+
+  -- كل من يدخل وصلًا عميلٌ حتى يُرقّى. ولا يُمنح دور تشغيليّ إلا بإسناد صريح.
   insert into user_roles (user_id, role)
-  values (new.id, 'customer')
+  values (auth.uid(), 'customer')
   on conflict do nothing;
 
-  return new;
+  return v_profile;
 end;
 $$;
 
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function handle_new_user();
+comment on function ensure_profile is
+  'يُنادى بعد الدخول. يُنشئ ملفّ وصل إن لم يوجد — فلا يتلوّث جدولنا بمستخدمي التطبيق الشريك في المشروع نفسه.';
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- updated_at
