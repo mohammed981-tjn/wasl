@@ -49,3 +49,10 @@ returns void language sql as $$
          set_config('request.jwt.claim.role', 'anon', false);
   select null::void;
 $$;
+
+-- Supabase يمنح أدوار الواجهة حقّ استدعاء auth.uid()؛ ومحاكيه يجب أن يفعل
+-- المثل، وإلا فشل كل اختبار بـ«permission denied for schema auth» قبل أن يصل
+-- إلى سياسةٍ واحدة.
+grant usage on schema auth to anon, authenticated, service_role;
+grant execute on all functions in schema auth to anon, authenticated, service_role;
+grant select on auth.users to authenticated, service_role;

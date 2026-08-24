@@ -298,6 +298,17 @@ begin
     return new;
   end if;
 
+  -- السياق الخادميّ (مفتاح service_role أو محرّر SQL) يمرّ: الإصلاح اليدويّ
+  -- لطلبٍ عَلِق يجب أن يبقى ممكنًا. ويُسجَّل بمنفّذٍ NULL — أي «النظام»، لا
+  -- انتحالًا لشخص.
+  if auth.uid() is null then
+    insert into order_events (order_id, from_status, to_status, note)
+    values (new.id, old.status, new.status, 'من السياق الخادميّ');
+    if new.status = 'placed'    and new.placed_at    is null then new.placed_at    := now(); end if;
+    if new.status = 'delivered' and new.delivered_at is null then new.delivered_at := now(); end if;
+    return new;
+  end if;
+
   select allowed_roles into v_allowed
   from order_transitions
   where from_status = old.status and to_status = new.status;
