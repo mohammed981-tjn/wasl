@@ -1,0 +1,199 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../models/enums.dart';
+import '../../services/session_service.dart';
+import 'dashboard_tab.dart';
+import 'delivery_fees_tab.dart';
+import 'services_pricing_tab.dart';
+
+/// هيكل لوحة الإدارة.
+///
+/// **شريطٌ جانبيّ لا شريطٌ سفليّ**: هذه اللوحة تُستعمل على شاشةٍ عريضة —
+/// متصفّحٍ على مكتب — لا على جوّال بيدٍ واحدة. والشريط السفليّ يضيّع عرضًا
+/// ثمينًا في جدولٍ من عشرة أعمدة.
+class AdminHome extends StatefulWidget {
+  const AdminHome({super.key});
+
+  @override
+  State<AdminHome> createState() => _AdminHomeState();
+}
+
+class _AdminHomeState extends State<AdminHome> {
+  int _index = 0;
+
+  static const _destinations = [
+    (icon: Icons.dashboard_outlined, selected: Icons.dashboard, label: 'اليوم'),
+    (icon: Icons.local_offer_outlined, selected: Icons.local_offer, label: 'الخدمات والأسعار'),
+    (icon: Icons.local_shipping_outlined, selected: Icons.local_shipping, label: 'رسوم التوصيل'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final session = context.watch<SessionService>();
+
+    if (!session.canUseAdminApp) {
+      return _NoAccess(onSignOut: session.signOut);
+    }
+    if (session.branches.isEmpty) {
+      return _NoBranch(onSignOut: session.signOut, error: session.error);
+    }
+
+    final isWide = MediaQuery.sizeOf(context).width >= 900;
+
+    final body = switch (_index) {
+      0 => const DashboardTab(),
+      1 => const ServicesPricingTab(),
+      _ => const DeliveryFeesTab(),
+    };
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('وصل • الإدارة'),
+        actions: [
+          if (session.branches.length > 1) const _BranchPicker(),
+          const SizedBox(width: 8),
+          _RoleChip(role: session.primaryRole),
+          IconButton(
+            tooltip: 'تسجيل الخروج',
+            onPressed: session.signOut,
+            icon: const Icon(Icons.logout),
+          ),
+          const SizedBox(width: 4),
+        ],
+      ),
+      body: Row(
+        children: [
+          if (isWide)
+            NavigationRail(
+              selectedIndex: _index,
+              onDestinationSelected: (i) => setState(() => _index = i),
+              labelType: NavigationRailLabelType.all,
+              destinations: [
+                for (final d in _destinations)
+                  NavigationRailDestination(
+                    icon: Icon(d.icon),
+                    selectedIcon: Icon(d.selected),
+                    label: Text(d.label),
+                  ),
+              ],
+            ),
+          if (isWide) const VerticalDivider(width: 1),
+          Expanded(child: body),
+        ],
+      ),
+      bottomNavigationBar: isWide
+          ? null
+          : NavigationBar(
+              selectedIndex: _index,
+              onDestinationSelected: (i) => setState(() => _index = i),
+              destinations: [
+                for (final d in _destinations)
+                  NavigationDestination(
+                    icon: Icon(d.icon),
+                    selectedIcon: Icon(d.selected),
+                    label: d.label,
+                  ),
+              ],
+            ),
+    );
+  }
+}
+
+class _BranchPicker extends StatelessWidget {
+  const _BranchPicker();
+
+  @override
+  Widget build(BuildContext context) {
+    final session = context.watch<SessionService>();
+    return DropdownButtonHideUnderline(
+      child: DropdownButton<String>(
+        value: session.activeBranchId,
+        icon: const Icon(Icons.arrow_drop_down),
+        items: [
+          for (final b in session.branches)
+            DropdownMenuItem(value: b.id, child: Text(b.nameAr)),
+        ],
+        onChanged: (v) {
+          if (v != null) session.setActiveBranch(v);
+        },
+      ),
+    );
+  }
+}
+
+class _RoleChip extends StatelessWidget {
+  const _RoleChip({required this.role});
+
+  final AppRole? role;
+
+  @override
+  Widget build(BuildContext context) {
+    if (role == null) return const SizedBox.shrink();
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      label: Text(role!.labelAr, style: const TextStyle(fontSize: 12)),
+    );
+  }
+}
+
+/// دخل بحسابٍ لا دور إداريًّا له.
+///
+/// وهذه شاشةٌ **صادقة**: لا تخفي التبويبات وتتركه يظنّ أنّ اللوحة فارغة، بل
+/// تقول له إن حسابه ليس إداريًّا. وحتى لو تجاوزها بحزمةٍ معدَّلة لَما رأى صفًّا:
+/// سياسات RLS ترفض، لا الشاشة.
+class _NoAccess extends StatelessWidget {
+  const _NoAccess({required this.onSignOut});
+
+  final Future<void> Function() onSignOut;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.lock_outline, size: 48),
+              const SizedBox(height: 12),
+              Text('هذا الحساب ليس له دور إداريّ',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 4),
+              const Text('راجع مالك المنصّة لإسناد دورٍ لك.'),
+              const SizedBox(height: 20),
+              TextButton(
+                  onPressed: onSignOut, child: const Text('تسجيل الخروج')),
+            ],
+          ),
+        ),
+      );
+}
+
+class _NoBranch extends StatelessWidget {
+  const _NoBranch({required this.onSignOut, this.error});
+
+  final Future<void> Function() onSignOut;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.store_outlined, size: 48),
+              const SizedBox(height: 12),
+              Text('لا فرع مرتبطٌ بحسابك',
+                  style: Theme.of(context).textTheme.titleMedium),
+              if (error != null) ...[
+                const SizedBox(height: 8),
+                Text(error!, style: TextStyle(
+                    color: Theme.of(context).colorScheme.error)),
+              ],
+              const SizedBox(height: 20),
+              TextButton(
+                  onPressed: onSignOut, child: const Text('تسجيل الخروج')),
+            ],
+          ),
+        ),
+      );
+}

@@ -1,12 +1,23 @@
 import 'package:flutter/material.dart';
 import 'app_colors.dart';
 
+/// اسم الخطّ العربيّ المضمَّن.
+///
+/// **مصيدةٌ تستحقّ التصريح**: `ThemeData.fontFamily` يسري على `textTheme`
+/// **ولا يسري على `TextStyle` تُمرَّر لثيم مكوّن** (زرّ، شريط، رقاقة). فتلك
+/// تعود إلى خطّ Flutter الافتراضي — وهو بلا حرفٍ عربيّ، فيظهر نصّ الزرّ
+/// مربّعاتٍ فارغة بينما بقيّة الشاشة سليمة.
+///
+/// ولذلك يُذكر الخطّ في **كل** `TextStyle` هنا صراحةً. ومن يضيف نمطًا جديدًا
+/// بلا `fontFamily: kFontFamily` سيرى المربّعات بنفسه.
+const String kFontFamily = 'Cairo';
+
 /// WASL Theme (clean & premium)
 /// - Light: soft backgrounds, green primary, gold accents.
 /// - Dark: deep surfaces, readable text, same brand colors.
 class AppTheme {
   static ThemeData light() {
-    final colorScheme = ColorScheme(
+    const colorScheme = ColorScheme(
       brightness: Brightness.light,
       primary: AppColors.primary,
       onPrimary: Colors.white,
@@ -16,17 +27,18 @@ class AppTheme {
       onError: Colors.white,
       surface: Colors.white,
       onSurface: AppColors.textPrimary,
-      background: AppColors.backgroundLight,
-      onBackground: AppColors.textPrimary,
     );
 
     return ThemeData(
       useMaterial3: true,
+      // بلا هذا يرسم Flutter كل نصّ عربيّ مربّعاتٍ فارغة: خطّه الافتراضي
+      // (Roboto) لا يحوي حرفًا عربيًّا، ولا «خطّ نظام» على الويب يُتّكل عليه.
+      fontFamily: 'Cairo',
       colorScheme: colorScheme,
       scaffoldBackgroundColor: AppColors.backgroundLight,
       dividerColor: AppColors.border,
-      splashColor: colorScheme.primary.withOpacity(0.08),
-      highlightColor: colorScheme.primary.withOpacity(0.06),
+      splashColor: colorScheme.primary.withValues(alpha: 0.08),
+      highlightColor: colorScheme.primary.withValues(alpha: 0.06),
 
       // App bars
       appBarTheme: AppBarTheme(
@@ -35,7 +47,7 @@ class AppTheme {
         backgroundColor: colorScheme.primary,
         foregroundColor: colorScheme.onPrimary,
         surfaceTintColor: Colors.transparent,
-        titleTextStyle: const TextStyle(
+        titleTextStyle: const TextStyle(fontFamily: kFontFamily, 
           fontSize: 18,
           fontWeight: FontWeight.w700,
           color: Colors.white,
@@ -50,7 +62,7 @@ class AppTheme {
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: AppColors.border),
+          side: const BorderSide(color: AppColors.border),
         ),
       ),
 
@@ -62,7 +74,7 @@ class AppTheme {
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+          textStyle: const TextStyle(fontFamily: kFontFamily, fontWeight: FontWeight.w700, fontSize: 15),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
@@ -71,16 +83,16 @@ class AppTheme {
           foregroundColor: colorScheme.onPrimary,
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+          textStyle: const TextStyle(fontFamily: kFontFamily, fontWeight: FontWeight.w700, fontSize: 15),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: colorScheme.primary,
-          side: BorderSide(color: AppColors.border),
+          side: const BorderSide(color: AppColors.border),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+          textStyle: const TextStyle(fontFamily: kFontFamily, fontWeight: FontWeight.w700, fontSize: 15),
         ),
       ),
 
@@ -91,18 +103,18 @@ class AppTheme {
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: AppColors.border),
+          borderSide: const BorderSide(color: AppColors.border),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: AppColors.border),
+          borderSide: const BorderSide(color: AppColors.border),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: colorScheme.primary, width: 1.4),
         ),
-        hintStyle: TextStyle(color: AppColors.textSecondary),
-        labelStyle: TextStyle(color: AppColors.textSecondary),
+        hintStyle: const TextStyle(fontFamily: kFontFamily, color: AppColors.textSecondary),
+        labelStyle: const TextStyle(fontFamily: kFontFamily, color: AppColors.textSecondary),
       ),
 
       // Bottom nav
@@ -117,26 +129,26 @@ class AppTheme {
       // Chips
       chipTheme: ChipThemeData(
         backgroundColor: AppColors.surfaceAlt,
-        selectedColor: colorScheme.primary.withOpacity(0.12),
-        labelStyle: const TextStyle(fontWeight: FontWeight.w600),
-        secondaryLabelStyle: const TextStyle(fontWeight: FontWeight.w600),
-        side: BorderSide(color: AppColors.border),
+        selectedColor: colorScheme.primary.withValues(alpha: 0.12),
+        labelStyle: const TextStyle(fontFamily: kFontFamily, fontWeight: FontWeight.w600),
+        secondaryLabelStyle: const TextStyle(fontFamily: kFontFamily, fontWeight: FontWeight.w600),
+        side: const BorderSide(color: AppColors.border),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
       ),
 
       // Typography
       textTheme: const TextTheme(
-        headlineSmall: TextStyle(fontWeight: FontWeight.w800),
-        titleLarge: TextStyle(fontWeight: FontWeight.w800),
-        titleMedium: TextStyle(fontWeight: FontWeight.w700),
-        bodyLarge: TextStyle(fontWeight: FontWeight.w500),
-        bodyMedium: TextStyle(fontWeight: FontWeight.w500),
+        headlineSmall: TextStyle(fontFamily: kFontFamily, fontWeight: FontWeight.w800),
+        titleLarge: TextStyle(fontFamily: kFontFamily, fontWeight: FontWeight.w800),
+        titleMedium: TextStyle(fontFamily: kFontFamily, fontWeight: FontWeight.w700),
+        bodyLarge: TextStyle(fontFamily: kFontFamily, fontWeight: FontWeight.w500),
+        bodyMedium: TextStyle(fontFamily: kFontFamily, fontWeight: FontWeight.w500),
       ),
     );
   }
 
   static ThemeData dark() {
-    final colorScheme = ColorScheme(
+    const colorScheme = ColorScheme(
       brightness: Brightness.dark,
       primary: AppColors.primary,
       onPrimary: Colors.white,
@@ -146,30 +158,31 @@ class AppTheme {
       onError: Colors.white,
       surface: AppColors.surfaceDark,
       onSurface: Colors.white,
-      background: AppColors.backgroundDark,
-      onBackground: Colors.white,
     );
 
     return ThemeData(
       useMaterial3: true,
+      // بلا هذا يرسم Flutter كل نصّ عربيّ مربّعاتٍ فارغة: خطّه الافتراضي
+      // (Roboto) لا يحوي حرفًا عربيًّا، ولا «خطّ نظام» على الويب يُتّكل عليه.
+      fontFamily: 'Cairo',
       colorScheme: colorScheme,
       scaffoldBackgroundColor: AppColors.backgroundDark,
       dividerColor: AppColors.borderDark,
-      splashColor: colorScheme.primary.withOpacity(0.10),
-      highlightColor: colorScheme.primary.withOpacity(0.08),
+      splashColor: colorScheme.primary.withValues(alpha: 0.10),
+      highlightColor: colorScheme.primary.withValues(alpha: 0.08),
 
-      appBarTheme: AppBarTheme(
+      appBarTheme: const AppBarTheme(
         elevation: 0,
         centerTitle: true,
         backgroundColor: AppColors.surfaceDark,
         foregroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
-        titleTextStyle: const TextStyle(
+        titleTextStyle: TextStyle(fontFamily: kFontFamily, 
           fontSize: 18,
           fontWeight: FontWeight.w700,
           color: Colors.white,
         ),
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: IconThemeData(color: Colors.white),
       ),
 
       cardTheme: CardThemeData(
@@ -178,7 +191,7 @@ class AppTheme {
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: AppColors.borderDark),
+          side: const BorderSide(color: AppColors.borderDark),
         ),
       ),
 
@@ -189,7 +202,7 @@ class AppTheme {
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+          textStyle: const TextStyle(fontFamily: kFontFamily, fontWeight: FontWeight.w700, fontSize: 15),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -198,18 +211,18 @@ class AppTheme {
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: AppColors.borderDark),
+          borderSide: const BorderSide(color: AppColors.borderDark),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: AppColors.borderDark),
+          borderSide: const BorderSide(color: AppColors.borderDark),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: colorScheme.primary, width: 1.4),
         ),
-        hintStyle: TextStyle(color: Colors.white70),
-        labelStyle: TextStyle(color: Colors.white70),
+        hintStyle: const TextStyle(fontFamily: kFontFamily, color: Colors.white70),
+        labelStyle: const TextStyle(fontFamily: kFontFamily, color: Colors.white70),
       ),
 
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
