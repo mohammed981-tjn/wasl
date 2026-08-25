@@ -8,6 +8,7 @@ import '../../models/models.dart';
 import '../../services/cart.dart';
 import '../../services/customer_service.dart';
 import '../../services/delivery_service.dart';
+import '../../services/payments_service.dart';
 import '../../services/session_service.dart';
 import '../../services/supabase_service.dart';
 import 'order_tracking_screen.dart';
@@ -36,6 +37,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   BookingSlot? _slot;
   CheckoutQuote? _quote;
   PaymentMethod _payment = PaymentMethod.cashOnDelivery;
+  bool _cardAvailable = false;
 
   bool _loading = true;
   bool _placing = false;
@@ -75,9 +77,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         branchId: branch.id,
         pieceLoad: cart.pieceLoad,
       );
+      // تعذُّر معرفة المزوّد لا يمنع الطلب: تُخفى البطاقة ويبقى النقد.
+      var cardOk = false;
+      try {
+        cardOk = await const PaymentsService().cardAvailable(branch.laundryId);
+      } catch (_) {
+        cardOk = false;
+      }
 
       if (!mounted) return;
       setState(() {
+        _cardAvailable = cardOk;
         _addresses = addresses;
         _address = addresses.isEmpty ? null : addresses.first;
         _slots = slots;
@@ -180,8 +190,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
       cart.clear();
       if (!mounted) return;
+      // الطلب أُرسل، والدفع خطوةٌ تليه. وفصلُهما مقصود: فشلُ فتح صفحة الدفع
+      // لا يجوز أن يضيّع طلبًا وُضع — يُدفع من شاشة التتبّع متى شاء.
       Navigator.of(context).pushReplacement(MaterialPageRoute(
-        builder: (_) => OrderTrackingScreen(orderId: order.id, justPlaced: true),
+        builder: (_) => OrderTrackingScreen(
+          orderId: order.id,
+          justPlaced: true,
+          payNow: _payment == PaymentMethod.card,
+        ),
       ));
     } catch (e) {
       if (mounted) {
@@ -283,6 +299,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 const SizedBox(height: 16),
                 _PaymentSection(
                   value: _payment,
+                  cardAvailable: _cardAvailable,
                   onChanged: (v) => setState(() => _payment = v),
                 ),
                 const SizedBox(height: 16),
@@ -558,17 +575,24 @@ class _CouponSection extends StatelessWidget {
 }
 
 class _PaymentSection extends StatelessWidget {
-  const _PaymentSection({required this.value, required this.onChanged});
+  const _PaymentSection({
+    required this.value,
+    required this.onChanged,
+    this.cardAvailable = false,
+  });
 
   final PaymentMethod value;
   final void Function(PaymentMethod) onChanged;
 
-  /// النقد عند التسليم أوّلًا: هو الغالب في السوق، والبطاقة تحتاج بوّابةً
-  /// مفعَّلة — وعرضُ خيارٍ لا يعمل يُفقد الثقة عند الضغط عليه.
-  static const _available = [
-    PaymentMethod.cashOnDelivery,
-    PaymentMethod.cashOnPickup,
-  ];
+  /// **الخيار يُعرض إن كان يعمل**: البطاقة لا تظهر إلا إذا كان في الكتالوج
+  /// مزوّدٌ نشطٌ يقبلها. وعرضُ خيارٍ يفشل عند الضغط أسوأ من إخفائه.
+  final bool cardAvailable;
+
+  List<PaymentMethod> get _available => [
+        PaymentMethod.cashOnDelivery,
+        PaymentMethod.cashOnPickup,
+        if (cardAvailable) PaymentMethod.card,
+      ];
 
   @override
   Widget build(BuildContext context) => Card(
@@ -595,8 +619,13 @@ class _PaymentSection extends StatelessWidget {
                   ],
                 ),
               ),
-              Text('الدفع بالبطاقة يُفعَّل عند ربط بوّابة الدفع.',
-                  style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                cardAvailable
+                    ? 'الدفع بالبطاقة يفتح صفحةً آمنة من مزوّد الدفع — ولا تمرّ '
+                        'بيانات بطاقتك على تطبيقنا.'
+                    : 'الدفع بالبطاقة يُفعَّل عند ربط بوّابة الدفع.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
           ),
         ),

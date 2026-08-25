@@ -354,6 +354,7 @@ class LaundryOrder {
     required this.customerId,
     required this.status,
     required this.paymentStatus,
+    this.paymentMethod = PaymentMethod.cashOnDelivery,
     required this.subtotal,
     required this.deliveryFee,
     required this.discountAmount,
@@ -382,6 +383,10 @@ class LaundryOrder {
   final String customerId;
   final OrderStatus status;
   final PaymentStatus paymentStatus;
+
+  /// ما اختاره العميل. و`payment_status` هو ما وقع فعلًا — والفرق بينهما هو
+  /// ما يجعل «اختار البطاقة ولم يدفع» حالةً مرئيّة لا لغزًا.
+  final PaymentMethod paymentMethod;
   final double subtotal;
   final double deliveryFee;
   final double discountAmount;
@@ -423,6 +428,9 @@ class LaundryOrder {
       customerId: m['customer_id'] as String,
       status: OrderStatus.fromWire(m['status'] as String),
       paymentStatus: PaymentStatus.fromWire(m['payment_status'] as String),
+      paymentMethod: m['payment_method'] == null
+          ? PaymentMethod.cashOnDelivery
+          : PaymentMethod.fromWire(m['payment_method'] as String),
       subtotal: _num(m['subtotal']),
       deliveryFee: _num(m['delivery_fee']),
       discountAmount: _num(m['discount_amount']),
@@ -1146,6 +1154,93 @@ class DriverJob {
           ? Address.fromMap(Map<String, dynamic>.from(addr))
           : null,
       customerPhone: profile is Map ? profile['phone'] as String? : null,
+    );
+  }
+}
+
+/// حالة الدفعة عند المزوّد.
+enum PaymentTxnStatus {
+  pending('pending', 'بانتظار الدفع'),
+  authorized('authorized', 'محجوز'),
+  captured('captured', 'مقبوض'),
+  failed('failed', 'فشل'),
+  cancelled('cancelled', 'ملغًى');
+
+  const PaymentTxnStatus(this.wireName, this.labelAr);
+  final String wireName;
+  final String labelAr;
+
+  static PaymentTxnStatus fromWire(String v) =>
+      values.firstWhere((e) => e.wireName == v,
+          orElse: () => throw ArgumentError('حالة دفعة غير معروفة: $v'));
+}
+
+/// محاولةُ دفعٍ — ناجحةً كانت أو فاشلة.
+///
+/// **المحاولة كيانٌ لا نتيجة**: من يسجّل الناجحة وحدها لا يعرف كم عميلًا حاول
+/// ولم يستطع، وهو أهمّ رقمٍ في قمع الشراء.
+class Payment {
+  const Payment({
+    required this.id,
+    required this.orderId,
+    required this.method,
+    required this.status,
+    required this.amount,
+    required this.createdAt,
+    this.providerRef,
+    this.cardBrand,
+    this.cardLast4,
+    this.failureMessage,
+    this.capturedAt,
+    this.refunded = 0,
+  });
+
+  final String id;
+  final String orderId;
+  final PaymentMethod method;
+  final PaymentTxnStatus status;
+  final double amount;
+  final String? providerRef;
+  final String? cardBrand;
+  final String? cardLast4;
+  final String? failureMessage;
+  final DateTime? capturedAt;
+  final DateTime createdAt;
+
+  /// ما استُردّ منها فعلًا — يُملأ حين تُجلب مع استرداداتها.
+  final double refunded;
+
+  double get refundable => status == PaymentTxnStatus.captured
+      ? (amount - refunded).clamp(0, amount)
+      : 0;
+
+  String get label {
+    if (cardLast4 != null) {
+      return '${cardBrand ?? 'بطاقة'} •••• $cardLast4';
+    }
+    return method.labelAr;
+  }
+
+  factory Payment.fromMap(Map<String, dynamic> m) {
+    final refunds = m['refunds'];
+    return Payment(
+      id: m['id'] as String,
+      orderId: m['order_id'] as String,
+      method: PaymentMethod.fromWire(m['method'] as String),
+      status: PaymentTxnStatus.fromWire(m['status'] as String),
+      amount: _num(m['amount']),
+      providerRef: m['provider_ref'] as String?,
+      cardBrand: m['card_brand'] as String?,
+      cardLast4: m['card_last4'] as String?,
+      failureMessage: m['failure_message'] as String?,
+      capturedAt: _date(m['captured_at']),
+      createdAt: _date(m['created_at']) ?? DateTime.now(),
+      refunded: refunds is List
+          ? refunds
+              .cast<Map<String, dynamic>>()
+              .where((r) => r['status'] == 'completed')
+              .fold<double>(0, (s, r) => s + _num(r['amount']))
+          : 0,
     );
   }
 }

@@ -5,7 +5,9 @@ import 'package:intl/intl.dart' hide TextDirection;
 import '../../models/enums.dart';
 import '../../models/models.dart';
 import '../../services/orders_service.dart';
+import '../../services/payments_service.dart';
 import '../../widgets/async_view.dart';
+import 'pay_card.dart';
 
 /// تتبّع الطلب.
 ///
@@ -17,6 +19,7 @@ class OrderTrackingScreen extends StatefulWidget {
     super.key,
     required this.orderId,
     this.justPlaced = false,
+    this.payNow = false,
   });
 
   final String orderId;
@@ -24,13 +27,20 @@ class OrderTrackingScreen extends StatefulWidget {
   /// وصل إلى هنا من إتمام الطلب — فيُهنَّأ مرّةً ولا يُترك في شاشةٍ باردة.
   final bool justPlaced;
 
+  /// اختار البطاقة، فتُفتح صفحة الدفع من تلقاء نفسها مرّةً واحدة.
+  final bool payNow;
+
   @override
   State<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
 }
 
 class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   final _orders = const OrdersService();
-  late Future<(LaundryOrder, List<OrderEvent>)> _future;
+  late Future<(LaundryOrder, List<OrderEvent>, List<Payment>)> _future;
+
+  /// يُفتح الدفع تلقائيًّا **مرّةً**: فتحُه عند كل إعادة بناءٍ يفتح نوافذ بلا
+  /// عدد على من عاد من الصفحة ولم يدفع.
+  bool _autoPayDone = false;
 
   /// المسار المعتاد كما يراه العميل. والحالات الاستثنائية (موقوف، ملغى) لا
   /// تُعرض في الخطّ بل تُعلَن فوقه: مكانُها ليس خطوةً في طريق.
@@ -56,7 +66,14 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       _future = () async {
         final o = await _orders.byId(widget.orderId);
         final e = await _orders.events(widget.orderId);
-        return (o, e);
+        // الدفعات تكميليّة: تعذّرها لا يُخفي تتبّع الطلب.
+        List<Payment> p = const [];
+        try {
+          p = await const PaymentsService().ofOrder(widget.orderId);
+        } catch (_) {
+          p = const [];
+        }
+        return (o, e, p);
       }();
     });
   }
@@ -70,11 +87,11 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           IconButton(onPressed: _reload, icon: const Icon(Icons.refresh)),
         ],
       ),
-      body: AsyncView<(LaundryOrder, List<OrderEvent>)>(
+      body: AsyncView<(LaundryOrder, List<OrderEvent>, List<Payment>)>(
         future: _future,
         onRetry: _reload,
         builder: (context, data) {
-          final (order, events) = data;
+          final (order, events, payments) = data;
           final reached = {for (final e in events) e.toStatus};
           final df = DateFormat('MM-dd HH:mm');
 
@@ -86,6 +103,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 const SizedBox(height: 20),
               ],
               _Head(order: order),
+              if (PaymentsService.owesPayment(order)) ...[
+                const SizedBox(height: 16),
+                PayCard(
+                  order: order,
+                  payments: payments,
+                  autoOpen: widget.payNow && !_autoPayDone,
+                  onAutoOpened: () => _autoPayDone = true,
+                  onPaid: _reload,
+                ),
+              ],
               const SizedBox(height: 24),
 
               if (order.status == OrderStatus.cancelled ||
