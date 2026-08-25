@@ -570,3 +570,202 @@ class OrderEvent {
     );
   }
 }
+
+/// كوبون خصم.
+///
+/// **الحدود هي جوهره لا قيمته**: كوبونٌ بلا سقف يُنشر في مجموعة واتساب
+/// فيُستهلك آلافًا في ساعة، وكوبونُ نسبةٍ بلا `maxDiscount` يبتلع فاتورة
+/// سجّادٍ بألف ريال.
+class Coupon {
+  const Coupon({
+    required this.id,
+    required this.laundryId,
+    required this.code,
+    required this.kind,
+    required this.value,
+    required this.isActive,
+    this.maxDiscount,
+    this.minSubtotal = 0,
+    this.startsAt,
+    this.endsAt,
+    this.maxUsesTotal = 0,
+    this.maxUsesPerUser = 1,
+    this.branchId,
+    this.firstOrderOnly = false,
+    this.redemptions = 0,
+  });
+
+  final String id;
+  final String laundryId;
+  final String code;
+  final CouponKind kind;
+  final double value;
+  final double? maxDiscount;
+  final double minSubtotal;
+  final DateTime? startsAt;
+  final DateTime? endsAt;
+
+  /// صفر = بلا حدّ.
+  final int maxUsesTotal;
+  final int maxUsesPerUser;
+
+  /// فارغٌ = يشمل كل الفروع.
+  final String? branchId;
+  final bool firstOrderOnly;
+  final bool isActive;
+
+  /// عدد مرّات الاستهلاك الفعليّ — محسوبٌ من `coupon_redemptions` لا من عدّاد.
+  final int redemptions;
+
+  bool get isExpired => endsAt != null && DateTime.now().isAfter(endsAt!);
+  bool get isExhausted => maxUsesTotal > 0 && redemptions >= maxUsesTotal;
+
+  /// «هل يعمل الآن؟» — سؤالٌ واحدٌ يجمع كل الأسباب.
+  bool get isLive => isActive && !isExpired && !isExhausted &&
+      (startsAt == null || DateTime.now().isAfter(startsAt!));
+
+  String get valueLabel => switch (kind) {
+        CouponKind.percentage => '${value.toStringAsFixed(0)}٪',
+        CouponKind.fixed => '${value.toStringAsFixed(2)} ر.س',
+        CouponKind.freeDelivery => 'توصيل مجاني',
+      };
+
+  factory Coupon.fromMap(Map<String, dynamic> m) {
+    // PostgREST يعيد العدّ المضموم قائمةً فيها كائنٌ واحد.
+    final counts = m['coupon_redemptions'];
+    final used = counts is List && counts.isNotEmpty
+        ? _int((counts.first as Map)['count'])
+        : 0;
+    return Coupon(
+      id: m['id'] as String,
+      laundryId: m['laundry_id'] as String,
+      code: m['code'] as String,
+      kind: CouponKind.fromWire(m['kind'] as String),
+      value: _num(m['value']),
+      maxDiscount:
+          m['max_discount'] == null ? null : _num(m['max_discount']),
+      minSubtotal: _num(m['min_subtotal']),
+      startsAt: _date(m['starts_at']),
+      endsAt: _date(m['ends_at']),
+      maxUsesTotal: _int(m['max_uses_total']),
+      maxUsesPerUser: _int(m['max_uses_per_user']),
+      branchId: m['branch_id'] as String?,
+      firstOrderOnly: m['first_order_only'] as bool? ?? false,
+      isActive: m['is_active'] as bool? ?? true,
+      redemptions: used,
+    );
+  }
+
+  Map<String, dynamic> toUpsert() => {
+        'laundry_id': laundryId,
+        'code': code.trim().toUpperCase(),
+        'kind': kind.wireName,
+        'value': value,
+        'max_discount': maxDiscount,
+        'min_subtotal': minSubtotal,
+        if (startsAt != null) 'starts_at': startsAt!.toUtc().toIso8601String(),
+        'ends_at': endsAt?.toUtc().toIso8601String(),
+        'max_uses_total': maxUsesTotal,
+        'max_uses_per_user': maxUsesPerUser,
+        'branch_id': branchId,
+        'first_order_only': firstOrderOnly,
+        'is_active': isActive,
+      };
+}
+
+/// ساعات عمل يومٍ واحد.
+class BranchHours {
+  const BranchHours({
+    required this.weekday,
+    required this.opensAt,
+    required this.closesAt,
+    required this.isClosed,
+    this.id,
+  });
+
+  final String? id;
+
+  /// ٠ = الأحد، موافقًا لـ`extract(dow)` في Postgres.
+  final int weekday;
+  final String opensAt;
+  final String closesAt;
+  final bool isClosed;
+
+  static const weekdayNames = [
+    'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء',
+    'الخميس', 'الجمعة', 'السبت',
+  ];
+
+  String get dayNameAr => weekdayNames[weekday];
+
+  factory BranchHours.fromMap(Map<String, dynamic> m) => BranchHours(
+        id: m['id'] as String?,
+        weekday: _int(m['weekday']),
+        // `time` يصل «08:00:00» — والدقائق وحدها هي ما يُعرض.
+        opensAt: (m['opens_at'] as String).substring(0, 5),
+        closesAt: (m['closes_at'] as String).substring(0, 5),
+        isClosed: m['is_closed'] as bool? ?? false,
+      );
+
+  Map<String, dynamic> toUpsert(String branchId) => {
+        'branch_id': branchId,
+        'weekday': weekday,
+        'opens_at': '$opensAt:00',
+        'closes_at': '$closesAt:00',
+        'is_closed': isClosed,
+      };
+
+  BranchHours copyWith({String? opensAt, String? closesAt, bool? isClosed}) =>
+      BranchHours(
+        id: id,
+        weekday: weekday,
+        opensAt: opensAt ?? this.opensAt,
+        closesAt: closesAt ?? this.closesAt,
+        isClosed: isClosed ?? this.isClosed,
+      );
+}
+
+/// إعدادات الحجز — تغذّي محرّك «أقرب موعد متاح».
+class BookingSettings {
+  const BookingSettings({
+    required this.branchId,
+    this.slotMinutes = 60,
+    this.leadTimeMinutes = 120,
+    this.horizonDays = 7,
+    this.maxOrdersPerSlot = 0,
+    this.maxPiecesPerSlot = 0,
+    this.cutoffBeforeCloseMinutes = 30,
+  });
+
+  final String branchId;
+  final int slotMinutes;
+
+  /// صفرٌ يعني فتحةً بدأت قبل دقيقة — وهو عطلٌ لا إعداد.
+  final int leadTimeMinutes;
+  final int horizonDays;
+
+  /// صفر = بلا سقف.
+  final int maxOrdersPerSlot;
+  final int maxPiecesPerSlot;
+  final int cutoffBeforeCloseMinutes;
+
+  factory BookingSettings.fromMap(Map<String, dynamic> m) => BookingSettings(
+        branchId: m['branch_id'] as String,
+        slotMinutes: _int(m['slot_minutes']),
+        leadTimeMinutes: _int(m['lead_time_minutes']),
+        horizonDays: _int(m['horizon_days']),
+        maxOrdersPerSlot: _int(m['max_orders_per_slot']),
+        maxPiecesPerSlot: _int(m['max_pieces_per_slot']),
+        cutoffBeforeCloseMinutes: _int(m['cutoff_before_close_minutes']),
+      );
+
+  Map<String, dynamic> toUpsert() => {
+        'branch_id': branchId,
+        'slot_minutes': slotMinutes,
+        'lead_time_minutes': leadTimeMinutes,
+        'horizon_days': horizonDays,
+        'max_orders_per_slot': maxOrdersPerSlot,
+        'max_pieces_per_slot': maxPiecesPerSlot,
+        'cutoff_before_close_minutes': cutoffBeforeCloseMinutes,
+      };
+}

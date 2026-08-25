@@ -3,9 +3,12 @@ import 'package:provider/provider.dart';
 
 import '../../models/enums.dart';
 import '../../services/session_service.dart';
+import 'coupons_tab.dart';
 import 'dashboard_tab.dart';
 import 'delivery_fees_tab.dart';
 import 'orders_tab.dart';
+import 'reports_tab.dart';
+import 'schedule_tab.dart';
 import 'services_pricing_tab.dart';
 import 'staff_tab.dart';
 
@@ -29,7 +32,10 @@ class _AdminHomeState extends State<AdminHome> {
     (icon: Icons.receipt_long_outlined, selected: Icons.receipt_long, label: 'الطلبات'),
     (icon: Icons.local_offer_outlined, selected: Icons.local_offer, label: 'الخدمات والأسعار'),
     (icon: Icons.local_shipping_outlined, selected: Icons.local_shipping, label: 'رسوم التوصيل'),
+    (icon: Icons.schedule_outlined, selected: Icons.schedule, label: 'المواعيد والطاقة'),
+    (icon: Icons.confirmation_number_outlined, selected: Icons.confirmation_number, label: 'الكوبونات'),
     (icon: Icons.badge_outlined, selected: Icons.badge, label: 'الموظّفون'),
+    (icon: Icons.insights_outlined, selected: Icons.insights, label: 'التقارير'),
   ];
 
   @override
@@ -50,10 +56,21 @@ class _AdminHomeState extends State<AdminHome> {
       1 => const OrdersTab(),
       2 => const ServicesPricingTab(),
       3 => const DeliveryFeesTab(),
-      _ => const StaffTab(),
+      4 => const ScheduleTab(),
+      5 => const CouponsTab(),
+      6 => const StaffTab(),
+      _ => const ReportsTab(),
     };
 
     return Scaffold(
+      // ثمانية أقسامٍ لا يحتملها شريطٌ سفليّ (وMaterial يحدّها بخمسة)، فتصير
+      // قائمةً جانبية على الشاشة الضيّقة. والقصُّ إلى خمسةٍ يُخفي ثلاثة أقسامٍ
+      // كاملة — وهو أسوأ من نقرةٍ إضافية.
+      drawer: isWide ? null : _NavDrawer(
+        index: _index,
+        destinations: _destinations,
+        onSelect: (i) => setState(() => _index = i),
+      ),
       appBar: AppBar(
         title: const Text('وصل • الإدارة'),
         actions: [
@@ -88,20 +105,6 @@ class _AdminHomeState extends State<AdminHome> {
           Expanded(child: body),
         ],
       ),
-      bottomNavigationBar: isWide
-          ? null
-          : NavigationBar(
-              selectedIndex: _index,
-              onDestinationSelected: (i) => setState(() => _index = i),
-              destinations: [
-                for (final d in _destinations)
-                  NavigationDestination(
-                    icon: Icon(d.icon),
-                    selectedIcon: Icon(d.selected),
-                    label: d.label,
-                  ),
-              ],
-            ),
     );
   }
 }
@@ -202,4 +205,41 @@ class _NoBranch extends StatelessWidget {
           ),
         ),
       );
+}
+
+
+class _NavDrawer extends StatelessWidget {
+  const _NavDrawer({
+    required this.index,
+    required this.destinations,
+    required this.onSelect,
+  });
+
+  final int index;
+  final List<({IconData icon, IconData selected, String label})> destinations;
+  final void Function(int) onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return NavigationDrawer(
+      selectedIndex: index,
+      onDestinationSelected: (i) {
+        onSelect(i);
+        Navigator.pop(context);
+      },
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(28, 24, 16, 12),
+          child: Text('وصل • الإدارة',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+        ),
+        for (final d in destinations)
+          NavigationDrawerDestination(
+            icon: Icon(d.icon),
+            selectedIcon: Icon(d.selected),
+            label: Text(d.label),
+          ),
+      ],
+    );
+  }
 }
