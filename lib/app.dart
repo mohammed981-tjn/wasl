@@ -7,6 +7,7 @@ import 'core/theme/app_theme.dart';
 import 'screens/admin/admin_home.dart';
 import 'screens/auth/sign_in_screen.dart';
 import 'screens/customer/customer_home.dart';
+import 'screens/laundry/laundry_home.dart';
 import 'services/cart.dart';
 import 'services/session_service.dart';
 
@@ -68,6 +69,7 @@ class _FlavorGate extends StatelessWidget {
     return switch (flavor) {
       AppFlavor.admin => const AdminHome(),
       AppFlavor.customer => const CustomerHome(),
+      AppFlavor.laundry => const LaundryHome(),
       _ => _ComingSoon(flavor: flavor),
     };
   }
@@ -96,7 +98,7 @@ class _ComingSoon extends StatelessWidget {
             Text('${flavor.titleAr} — لم تُبنَ بعد',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 4),
-            Text('المبنيّ حتى الآن: الإدارة والعميل',
+            Text('المبنيّ حتى الآن: الإدارة والعميل والمغسلة',
                 style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 20),
             TextButton(

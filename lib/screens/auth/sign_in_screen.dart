@@ -79,10 +79,13 @@ class _SignInScreenState extends State<SignInScreen> {
                       style: theme.textTheme.displaySmall?.copyWith(
                           fontWeight: FontWeight.w900,
                           color: theme.colorScheme.primary)),
-                  const SizedBox(height: 6),
-                  Text(widget.flavor.titleAr,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium),
+                  // نكهةُ العميل عنوانها «وصل» نفسه، فلا تُكرَّر تحت الشعار.
+                  if (widget.flavor != AppFlavor.customer) ...[
+                    const SizedBox(height: 6),
+                    Text(widget.flavor.titleAr,
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium),
+                  ],
                   const SizedBox(height: 32),
 
                   SegmentedButton<_Method>(

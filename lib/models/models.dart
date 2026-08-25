@@ -944,3 +944,78 @@ class Address {
         'is_default': isDefault,
       };
 }
+
+/// قطعةٌ في طلب — الجرد الفعليّ بعد الفرز.
+///
+/// **ما يطلبه العميل تقديرٌ، وما يجده الفارز هو الحقيقة.** والفصل بينهما يجعل
+/// الفرق مرئيًّا («طلب ٣ ثياب ووصل ٤») بدل أن يُطمس بتعديل البند.
+class OrderGarment {
+  const OrderGarment({
+    required this.id,
+    required this.orderId,
+    required this.barcode,
+    required this.labelAr,
+    required this.currentStage,
+    this.color,
+    this.brand,
+    this.defectNotes,
+    this.photoUrls = const [],
+  });
+
+  final String id;
+  final String orderId;
+  final String barcode;
+  final String labelAr;
+  final OrderStatus currentStage;
+  final String? color;
+  final String? brand;
+
+  /// بقعة، تمزّق، لونٌ يسيل. **تُوثَّق قبل الغسيل لا بعده** — بعده تصير كلمتَه
+  /// ضدّ كلمتنا.
+  final String? defectNotes;
+  final List<String> photoUrls;
+
+  bool get hasDefect => defectNotes != null && defectNotes!.trim().isNotEmpty;
+
+  factory OrderGarment.fromMap(Map<String, dynamic> m) => OrderGarment(
+        id: m['id'] as String,
+        orderId: m['order_id'] as String,
+        barcode: m['barcode'] as String,
+        labelAr: m['label_ar'] as String,
+        currentStage: OrderStatus.fromWire(m['current_stage'] as String),
+        color: m['color'] as String?,
+        brand: m['brand'] as String?,
+        defectNotes: m['defect_notes'] as String?,
+        photoUrls: (m['photo_urls'] as List?)?.cast<String>() ?? const [],
+      );
+}
+
+/// نتيجة مسح باركود.
+class BarcodeHit {
+  const BarcodeHit({
+    required this.orderId,
+    required this.orderNumber,
+    required this.status,
+    required this.isGarment,
+    this.garmentId,
+    this.garmentLabel,
+  });
+
+  final String orderId;
+  final int orderNumber;
+  final OrderStatus status;
+
+  /// مُسح ملصقُ قطعةٍ لا ملصقَ الكيس — والنتيجة الطلب نفسه في الحالتين.
+  final bool isGarment;
+  final String? garmentId;
+  final String? garmentLabel;
+
+  factory BarcodeHit.fromMap(Map<String, dynamic> m) => BarcodeHit(
+        orderId: m['order_id'] as String,
+        orderNumber: _int(m['order_number']),
+        status: OrderStatus.fromWire(m['status'] as String),
+        isGarment: m['kind'] == 'garment',
+        garmentId: m['garment_id'] as String?,
+        garmentLabel: m['garment_label'] as String?,
+      );
+}
