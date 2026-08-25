@@ -6,6 +6,8 @@ import 'config/app_role.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/admin/admin_home.dart';
 import 'screens/auth/sign_in_screen.dart';
+import 'screens/customer/customer_home.dart';
+import 'services/cart.dart';
 import 'services/session_service.dart';
 
 /// جذر التطبيق، واعٍ بالنكهة ولا يعرف من ثبّتها.
@@ -16,8 +18,13 @@ class WaslApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => SessionService()..refresh(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => SessionService()..refresh()),
+        // السلّة تعيش فوق الشاشات لا داخلها: العميل يتصفّح ويعود، ويجب ألّا
+        // يفقد اختياره بضغطة رجوع.
+        ChangeNotifierProvider(create: (_) => Cart()),
+      ],
       child: MaterialApp(
         title: flavor.titleAr,
         debugShowCheckedModeBanner: false,
@@ -60,6 +67,7 @@ class _FlavorGate extends StatelessWidget {
 
     return switch (flavor) {
       AppFlavor.admin => const AdminHome(),
+      AppFlavor.customer => const CustomerHome(),
       _ => _ComingSoon(flavor: flavor),
     };
   }
@@ -88,7 +96,7 @@ class _ComingSoon extends StatelessWidget {
             Text('${flavor.titleAr} — لم تُبنَ بعد',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 4),
-            Text('المرحلة الحالية: لوحة الإدارة',
+            Text('المبنيّ حتى الآن: الإدارة والعميل',
                 style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 20),
             TextButton(

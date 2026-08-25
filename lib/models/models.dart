@@ -67,6 +67,8 @@ class Branch {
     this.phone,
     this.dailyCapacityPieces = 0,
     this.isActive = true,
+    this.lat,
+    this.lng,
   });
 
   final String id;
@@ -74,6 +76,11 @@ class Branch {
   final String nameAr;
   final String city;
   final String? phone;
+
+  /// من العمودين المشتقّين `lat`/`lng` — لا من `location`، فهي تصل نصًّا
+  /// سداسيًّا لا رقمًا.
+  final double? lat;
+  final double? lng;
 
   /// صفر يعني «بلا سقف» — لا «لا طاقة».
   final int dailyCapacityPieces;
@@ -89,6 +96,8 @@ class Branch {
         phone: m['phone'] as String?,
         dailyCapacityPieces: _int(m['daily_capacity_pieces']),
         isActive: m['is_active'] as bool? ?? true,
+        lat: m['lat'] == null ? null : _num(m['lat']),
+        lng: m['lng'] == null ? null : _num(m['lng']),
       );
 }
 
@@ -767,5 +776,171 @@ class BookingSettings {
         'max_orders_per_slot': maxOrdersPerSlot,
         'max_pieces_per_slot': maxPiecesPerSlot,
         'cutoff_before_close_minutes': cutoffBeforeCloseMinutes,
+      };
+}
+
+/// قالب رسالة.
+///
+/// **النصّ صفٌّ لا سلسلةٌ في Dart**: تغييرُ «تم استلام ملابسك» إلى صيغة صاحب
+/// المغسلة لا يحتاج إصدارًا على المتجر. والقالب مربوطٌ بحالة الطلب لا باسمٍ
+/// حرّ، فحالةٌ تُضاف غدًا يكشف الجدول فراغَ قالبها.
+class NotificationTemplate {
+  const NotificationTemplate({
+    required this.id,
+    required this.laundryId,
+    required this.triggerStatus,
+    required this.channel,
+    required this.audience,
+    required this.bodyAr,
+    this.titleAr,
+    this.isActive = true,
+  });
+
+  final String id;
+  final String laundryId;
+  final OrderStatus triggerStatus;
+  final NotificationChannel channel;
+  final AppRole audience;
+  final String? titleAr;
+  final String bodyAr;
+  final bool isActive;
+
+  /// المتغيّرات المتاحة — تُعرض للمحرّر كي لا يخمّن أسماءها.
+  static const variables = ['رقم_الطلب', 'الفرع', 'الإجمالي'];
+
+  /// معاينةٌ بقيمٍ نموذجية. **تُحسب هنا لا في القاعدة** لأنها معاينةُ نصٍّ لا
+  /// حسابُ مال: لا مرجع ينحرف.
+  String preview() {
+    var out = bodyAr;
+    const sample = {
+      'رقم_الطلب': '10042',
+      'الفرع': 'فرع المركز',
+      'الإجمالي': '115.00',
+    };
+    sample.forEach((k, v) => out = out.replaceAll('{$k}', v));
+    return out;
+  }
+
+  factory NotificationTemplate.fromMap(Map<String, dynamic> m) =>
+      NotificationTemplate(
+        id: m['id'] as String,
+        laundryId: m['laundry_id'] as String,
+        triggerStatus: OrderStatus.fromWire(m['trigger_status'] as String),
+        channel: NotificationChannel.fromWire(m['channel'] as String),
+        audience: AppRole.fromWire(m['audience'] as String),
+        titleAr: m['title_ar'] as String?,
+        bodyAr: m['body_ar'] as String,
+        isActive: m['is_active'] as bool? ?? true,
+      );
+
+  Map<String, dynamic> toUpsert() => {
+        'laundry_id': laundryId,
+        'trigger_status': triggerStatus.wireName,
+        'channel': channel.wireName,
+        'audience': audience.wireName,
+        'title_ar': titleAr,
+        'body_ar': bodyAr,
+        'is_active': isActive,
+      };
+}
+
+/// عنوان.
+///
+/// **وضع الزائر ليس حقلًا إضافيًّا بل حالةً كاملة**: المدينة المنورة ليست مدينة
+/// سكّان فحسب، والحاجّ ونزيل الفندق لا يعرف عنوانًا ولا اسم شارع — يعرف اسم
+/// فندقه ورقم غرفته وموعد مغادرته. والأخير قيدٌ على وعد التسليم: لا يجوز أن
+/// يَعِد النظام بتسليمٍ بعد أن يغادر صاحبه المدينة.
+class Address {
+  const Address({
+    required this.id,
+    required this.userId,
+    required this.kind,
+    required this.lat,
+    required this.lng,
+    this.label,
+    this.street,
+    this.district,
+    this.city = 'المدينة المنورة',
+    this.building,
+    this.notes,
+    this.hotelName,
+    this.roomNumber,
+    this.checkoutDate,
+    this.isDefault = false,
+  });
+
+  final String id;
+  final String userId;
+  final AddressKind kind;
+  final double lat;
+  final double lng;
+  final String? label;
+  final String? street;
+  final String? district;
+  final String city;
+  final String? building;
+  final String? notes;
+  final String? hotelName;
+  final String? roomNumber;
+  final DateTime? checkoutDate;
+  final bool isDefault;
+
+  bool get isHotel => kind == AddressKind.hotel;
+
+  /// سطرٌ واحد يُقرأ في قائمة — لا حقولٌ مبعثرة.
+  String get summary {
+    if (isHotel) {
+      return [hotelName, if (roomNumber != null) 'غرفة $roomNumber']
+          .whereType<String>()
+          .join(' — ');
+    }
+    return [label, district, street, building]
+        .whereType<String>()
+        .where((s) => s.trim().isNotEmpty)
+        .join('، ');
+  }
+
+  /// «هل يغادر قبل أن يجهز الطلب؟» — سؤالٌ يجب أن يُطرح قبل الوعد لا بعده.
+  bool leavesBefore(DateTime when) =>
+      checkoutDate != null && when.isAfter(checkoutDate!);
+
+  factory Address.fromMap(Map<String, dynamic> m) {
+    // PostGIS يعيد النقطة نصًّا سداسيًّا (EWKB) عبر PostgREST، وفكُّه في
+    // التطبيق عبثٌ. فالإحداثيات تُقرأ من الأعمدة المشتقّة إن وُجدت، وإلا صفر —
+    // والخريطة تعرض الفرع بدل أن تنهار.
+    return Address(
+      id: m['id'] as String,
+      userId: m['user_id'] as String,
+      kind: AddressKind.fromWire(m['kind'] as String),
+      lat: _num(m['lat']),
+      lng: _num(m['lng']),
+      label: m['label'] as String?,
+      street: m['street'] as String?,
+      district: m['district'] as String?,
+      city: m['city'] as String? ?? 'المدينة المنورة',
+      building: m['building'] as String?,
+      notes: m['notes'] as String?,
+      hotelName: m['hotel_name'] as String?,
+      roomNumber: m['room_number'] as String?,
+      checkoutDate: _date(m['checkout_date']),
+      isDefault: m['is_default'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toInsert() => {
+        'user_id': userId,
+        'kind': kind.wireName,
+        'location': 'SRID=4326;POINT($lng $lat)',
+        if (label != null) 'label': label,
+        if (street != null) 'street': street,
+        if (district != null) 'district': district,
+        'city': city,
+        if (building != null) 'building': building,
+        if (notes != null) 'notes': notes,
+        if (hotelName != null) 'hotel_name': hotelName,
+        if (roomNumber != null) 'room_number': roomNumber,
+        if (checkoutDate != null)
+          'checkout_date': checkoutDate!.toIso8601String().split('T').first,
+        'is_default': isDefault,
       };
 }

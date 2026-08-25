@@ -11,6 +11,7 @@ import 'reports_tab.dart';
 import 'schedule_tab.dart';
 import 'services_pricing_tab.dart';
 import 'staff_tab.dart';
+import 'templates_tab.dart';
 
 /// هيكل لوحة الإدارة.
 ///
@@ -35,6 +36,7 @@ class _AdminHomeState extends State<AdminHome> {
     (icon: Icons.schedule_outlined, selected: Icons.schedule, label: 'المواعيد والطاقة'),
     (icon: Icons.confirmation_number_outlined, selected: Icons.confirmation_number, label: 'الكوبونات'),
     (icon: Icons.badge_outlined, selected: Icons.badge, label: 'الموظّفون'),
+    (icon: Icons.campaign_outlined, selected: Icons.campaign, label: 'رسائل العميل'),
     (icon: Icons.insights_outlined, selected: Icons.insights, label: 'التقارير'),
   ];
 
@@ -59,6 +61,7 @@ class _AdminHomeState extends State<AdminHome> {
       4 => const ScheduleTab(),
       5 => const CouponsTab(),
       6 => const StaffTab(),
+      7 => const TemplatesTab(),
       _ => const ReportsTab(),
     };
 

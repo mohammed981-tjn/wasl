@@ -119,3 +119,37 @@ class ScheduleService {
         .eq('id', branchId);
   }
 }
+
+/// قوالب الإشعارات.
+class TemplatesService {
+  const TemplatesService();
+
+  Future<List<NotificationTemplate>> ofLaundry(String laundryId) async {
+    final rows = await Db.client
+        .from('notification_templates')
+        .select()
+        .eq('laundry_id', laundryId);
+    return (rows as List)
+        .map((e) => NotificationTemplate.fromMap(e as Map<String, dynamic>))
+        .toList()
+      // بترتيب مسار الطلب لا بترتيب الإدراج: المحرّر يقرأ الرحلة كما يعيشها
+      // العميل، فيرى أين تنقطع الرسائل.
+      ..sort((a, b) =>
+          a.triggerStatus.index.compareTo(b.triggerStatus.index));
+  }
+
+  Future<void> save(NotificationTemplate t) async {
+    if (t.id.isEmpty) {
+      await Db.client.from('notification_templates').insert(t.toUpsert());
+    } else {
+      await Db.client
+          .from('notification_templates')
+          .update(t.toUpsert())
+          .eq('id', t.id);
+    }
+  }
+
+  Future<void> remove(String id) async {
+    await Db.client.from('notification_templates').delete().eq('id', id);
+  }
+}

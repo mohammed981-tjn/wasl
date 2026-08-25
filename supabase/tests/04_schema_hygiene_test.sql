@@ -136,4 +136,29 @@ begin
   raise notice '✓ الأداء: كل مفتاح أجنبيّ مفهرس';
 end $$;
 
+-- ٩) الإحداثيّات تُقرأ أرقامًا لا نصًّا سداسيًّا.
+-- عمود `geography` يصل عبر PostgREST نصًّا مثل `0101000020E6100000...`،
+-- والتطبيق الذي يقرأ منه `lat` يجد فراغًا فيضع صفرًا — فيصير موقع العميل عند
+-- تقاطع خطّ الاستواء وغرينتش، وتُحسب مسافة التوصيل بآلاف الكيلومترات.
+-- ولا يمسك ذلك اختبارُ SQL (القاعدة تحسب بالنوع الأصليّ صحيحًا) ولا محلّلُ
+-- Dart (النوع dynamic). فيُمسك هنا.
+do $$
+declare v_lat double precision; v_lng double precision;
+begin
+  insert into laundries (id, name_ar, slug)
+  values ('99999999-9999-9999-9999-999999999999', 'فحص', 'probe');
+  insert into branches (id, laundry_id, name_ar, location)
+  values ('99999999-9999-9999-9999-999999999998',
+          '99999999-9999-9999-9999-999999999999', 'فحص',
+          st_point(39.6142, 24.4672)::geography);
+
+  select lat, lng into v_lat, v_lng
+  from branches where id = '99999999-9999-9999-9999-999999999998';
+
+  if round(v_lat::numeric, 4) <> 24.4672 or round(v_lng::numeric, 4) <> 39.6142 then
+    raise exception '✗ الإحداثيّات: توقّعنا (24.4672, 39.6142) وجاء (%, %)', v_lat, v_lng;
+  end if;
+  raise notice '✓ الإحداثيّات: lat/lng عمودان مشتقّان يُقرآن أرقامًا';
+end $$;
+
 rollback;

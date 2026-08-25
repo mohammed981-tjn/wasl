@@ -148,3 +148,53 @@ enum CouponKind {
       values.firstWhere((e) => e.wireName == v,
           orElse: () => throw ArgumentError('نوع كوبون غير معروف: $v'));
 }
+
+/// قناة الإشعار.
+enum NotificationChannel {
+  push('push', 'إشعار التطبيق'),
+  sms('sms', 'رسالة نصّية'),
+  whatsapp('whatsapp', 'واتساب'),
+  email('email', 'بريد'),
+  inApp('in_app', 'داخل التطبيق');
+
+  const NotificationChannel(this.wireName, this.labelAr);
+  final String wireName;
+  final String labelAr;
+
+  static NotificationChannel fromWire(String v) =>
+      values.firstWhere((e) => e.wireName == v,
+          orElse: () => throw ArgumentError('قناة غير معروفة: $v'));
+}
+
+/// وسيلة الدفع.
+enum PaymentMethod {
+  cashOnPickup('cash_on_pickup', 'نقدًا عند الاستلام'),
+  cashOnDelivery('cash_on_delivery', 'نقدًا عند التسليم'),
+  card('card', 'بطاقة'),
+  applePay('apple_pay', 'Apple Pay'),
+  wallet('wallet', 'المحفظة');
+
+  const PaymentMethod(this.wireName, this.labelAr);
+  final String wireName;
+  final String labelAr;
+
+  static PaymentMethod fromWire(String v) =>
+      values.firstWhere((e) => e.wireName == v,
+          orElse: () => throw ArgumentError('وسيلة دفع غير معروفة: $v'));
+}
+
+/// نوع العنوان.
+enum AddressKind {
+  home('home', 'المنزل'),
+  work('work', 'العمل'),
+  hotel('hotel', 'فندق'),
+  other('other', 'آخر');
+
+  const AddressKind(this.wireName, this.labelAr);
+  final String wireName;
+  final String labelAr;
+
+  static AddressKind fromWire(String v) =>
+      values.firstWhere((e) => e.wireName == v,
+          orElse: () => throw ArgumentError('نوع عنوان غير معروف: $v'));
+}
