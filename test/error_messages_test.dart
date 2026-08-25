@@ -26,13 +26,13 @@ void main() {
 
     test('الاستثناء الملفوف يُترجَم أيضًا — وهو ما فشل فعلًا', () {
       // هكذا يصل من supabase_flutter: AuthException نصّه ClientException.
-      final wrapped = AuthException(
+      const wrapped = AuthException(
           'ClientException: Failed to fetch, uri=https://x.supabase.co/auth/v1/otp');
       expect(humanizeDbError(wrapped), _networkMessage);
     });
 
     test('ولا يُفشى عنوان الخادم في أي حال', () {
-      final wrapped = AuthException(
+      const wrapped = AuthException(
           'ClientException: Failed to fetch, uri=https://secret.supabase.co/auth/v1/otp');
       expect(humanizeDbError(wrapped), isNot(contains('supabase.co')));
       expect(humanizeDbError(wrapped), isNot(contains('http')));
@@ -79,13 +79,13 @@ void main() {
 
   group('أخطاء المصادقة', () {
     test('بيانات دخولٍ خاطئة', () {
-      expect(humanizeDbError(AuthException('Invalid login credentials')),
+      expect(humanizeDbError(const AuthException('Invalid login credentials')),
           'بيانات الدخول غير صحيحة');
     });
 
     test('مزوّد الجوال غير مفعَّل يقترح البديل بدل أن يقف', () {
       // الرسالة التي سيراها أوّل من يجرّب الدخول بالجوال قبل تفعيل المزوّد.
-      final msg = humanizeDbError(AuthException('Phone provider is disabled'));
+      final msg = humanizeDbError(const AuthException('Phone provider is disabled'));
       expect(msg, contains('غير مفعَّل'));
       expect(msg, contains('البريد'));
     });
