@@ -50,16 +50,29 @@ insert into services (id, laundry_id, category_id, name_ar, unit, base_price) va
 insert into auth.users (id, phone) values ('a0000000-0000-0000-0000-000000000001','+966500000001');
 insert into profiles (id, phone) values ('a0000000-0000-0000-0000-000000000001','+966500000001');
 
+-- يومٌ عاملٌ ثابتٌ لكل الفحوص التالية — لا «غدًا» الذي قد يكون جمعة.
+create temporary table _t_open as
+select d::date as day
+from generate_series(current_date + 1, current_date + 6, '1 day') d
+where extract(dow from d) <> 5
+limit 1;
+
+create temporary table _t_open2 as
+select d::date as day
+from generate_series(current_date + 1, current_date + 6, '1 day') d
+where extract(dow from d) <> 5
+offset 1 limit 1;
+
 -- ═══ ١) توليد الفتحات من ساعات العمل ═════════════════════════════════════
 -- ٨ص–١٠م بفتحة ساعة، وآخر خروجٍ قبل الإغلاق بنصف ساعة ⇒ آخر فتحة ٢٠:٠٠
 select assert_eq(
   (select count(*)::int from available_slots(
-     '22222222-2222-2222-2222-222222222222','pickup', current_date + 1, 1)),
+     '22222222-2222-2222-2222-222222222222','pickup', (select day from _t_open), 1)),
   13, 'التوليد: ١٣ فتحة في اليوم (٨ص–٩م)');
 
 select assert_eq(
   (select max(to_char(slot_start,'HH24:MI')) from available_slots(
-     '22222222-2222-2222-2222-222222222222','pickup', current_date + 1, 1)),
+     '22222222-2222-2222-2222-222222222222','pickup', (select day from _t_open), 1)),
   '20:00', 'مهلة الخروج: آخر فتحة ٢٠:٠٠ لا ٢١:٠٠');
 
 -- ═══ ٢) اليوم المغلق لا فتحة فيه ═════════════════════════════════════════
@@ -105,7 +118,7 @@ declare
   v_id uuid;
 begin
   select slot_start into v_slot from available_slots(
-    '22222222-2222-2222-2222-222222222222','pickup', current_date + 1, 1)
+    '22222222-2222-2222-2222-222222222222','pickup', (select day from _t_open), 1)
   where is_available order by slot_start limit 1;
 
   for i in 1..2 loop
@@ -119,12 +132,12 @@ begin
   end loop;
 
   if (select is_available from available_slots(
-        '22222222-2222-2222-2222-222222222222','pickup', current_date + 1, 1)
+        '22222222-2222-2222-2222-222222222222','pickup', (select day from _t_open), 1)
       where slot_start = v_slot) then
     raise exception '✗ سقف الفتحة: ما زالت متاحةً بعد طلبين والسقف طلبان';
   end if;
   if (select blocked_reason from available_slots(
-        '22222222-2222-2222-2222-222222222222','pickup', current_date + 1, 1)
+        '22222222-2222-2222-2222-222222222222','pickup', (select day from _t_open), 1)
       where slot_start = v_slot) <> 'الفتحة ممتلئة' then
     raise exception '✗ سقف الفتحة: السبب المعلن غير صحيح';
   end if;
@@ -132,7 +145,7 @@ begin
 
   -- والفتحة التالية ما زالت مفتوحة — الامتلاء موضعيّ لا عامّ
   if not (select is_available from available_slots(
-            '22222222-2222-2222-2222-222222222222','pickup', current_date + 1, 1)
+            '22222222-2222-2222-2222-222222222222','pickup', (select day from _t_open), 1)
           where slot_start = v_slot + interval '1 hour') then
     raise exception '✗ سقف الفتحة: أغلق الفتحة التالية أيضًا';
   end if;
@@ -145,7 +158,7 @@ do $$
 declare v_open int;
 begin
   select count(*) into v_open from available_slots(
-    '22222222-2222-2222-2222-222222222222','pickup', current_date + 1, 1, 39)
+    '22222222-2222-2222-2222-222222222222','pickup', (select day from _t_open), 1, 39)
   where is_available;
   if v_open <> 0 then
     raise exception '✗ طاقة اليوم: % فتحة قبلت ٣٩ قطعة والطاقة ٤٠ وفيها قطعتان', v_open;
@@ -153,7 +166,7 @@ begin
   raise notice '✓ طاقة اليوم: طلبٌ بـ٣٩ قطعة لا يتّسع في يومٍ طاقته ٤٠ وفيه قطعتان';
 
   select count(*) into v_open from available_slots(
-    '22222222-2222-2222-2222-222222222222','pickup', current_date + 1, 1, 10)
+    '22222222-2222-2222-2222-222222222222','pickup', (select day from _t_open), 1, 10)
   where is_available;
   if v_open = 0 then
     raise exception '✗ طاقة اليوم: رفضت طلبًا بـ١٠ قطع وفيها متّسع';
@@ -165,33 +178,48 @@ end $$;
 -- سقف الفتحة ٢٠ قطعة. طلبٌ بـ٢٥ لا يدخل فتحةً واحدة مهما كانت فارغة.
 select assert_eq(
   (select count(*)::int from available_slots(
-     '22222222-2222-2222-2222-222222222222','pickup', current_date + 2, 1, 25)
+     '22222222-2222-2222-2222-222222222222','pickup', (select day from _t_open2), 1, 25)
    where is_available),
   0, 'سقف قطع الفتحة: طلبٌ بـ٢٥ قطعة لا يدخل فتحةً سقفها ٢٠');
 
 select assert_eq(
   (select distinct blocked_reason from available_slots(
-     '22222222-2222-2222-2222-222222222222','pickup', current_date + 2, 1, 25)
+     '22222222-2222-2222-2222-222222222222','pickup', (select day from _t_open2), 1, 25)
    where blocked_reason is not null limit 1),
   'طاقة الفتحة لا تتّسع لهذا الطلب', 'سقف قطع الفتحة: السبب معلن');
 
 -- ═══ ٨) التعطيل ══════════════════════════════════════════════════════════
+-- **اليوم يُختار ولا يُفترض**: كُتب هذا الفحص أوّلًا على `current_date + 3`،
+-- فنجح يومًا وفشل في اليوم التالي — لأن اليوم الثالث صادف الجمعة، والفرع مغلق
+-- فيها فلا فتحة تُغلَق أصلًا. واختبارٌ ينجح بعض الأيام أسوأ من لا اختبار:
+-- يفشل في CI بلا سبب ظاهر، فيُدرَّب الناس على تجاهله.
+--
+-- فيُنتقى أوّل يومٍ عاملٍ ضمن الأفق، أيًّا كان تاريخ التشغيل.
+create temporary table _t_day as
+select d::date as day
+from generate_series(current_date + 1, current_date + 6, '1 day') d
+where extract(dow from d) <> 5
+limit 1;
+
 insert into slot_blackouts (branch_id, starts_at, ends_at, reason)
-values ('22222222-2222-2222-2222-222222222222',
-        (current_date + 3 + time '10:00')::timestamptz,
-        (current_date + 3 + time '13:00')::timestamptz,
-        'صيانة الآلات');
+select '22222222-2222-2222-2222-222222222222',
+       (day + time '10:00')::timestamptz,
+       (day + time '13:00')::timestamptz,
+       'صيانة الآلات'
+from _t_day;
 
 select assert_eq(
   (select count(*)::int from available_slots(
-     '22222222-2222-2222-2222-222222222222','pickup', current_date + 3, 1)
+     '22222222-2222-2222-2222-222222222222','pickup',
+     (select day from _t_day), 1)
    where blocked_reason = 'صيانة الآلات'),
   3, 'التعطيل: ثلاث فتحات (١٠–١٣) مغلقة بسبب الصيانة');
 
 select assert_eq(
   (select is_available from available_slots(
-     '22222222-2222-2222-2222-222222222222','pickup', current_date + 3, 1)
-   where slot_start = (current_date + 3 + time '14:00')::timestamptz),
+     '22222222-2222-2222-2222-222222222222','pickup',
+     (select day from _t_day), 1)
+   where slot_start = ((select day from _t_day) + time '14:00')::timestamptz),
   true, 'التعطيل: ما بعد الصيانة مفتوح');
 
 -- ═══ ٩) أقرب موعد متاح ═══════════════════════════════════════════════════

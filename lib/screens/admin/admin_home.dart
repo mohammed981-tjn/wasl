@@ -5,7 +5,9 @@ import '../../models/enums.dart';
 import '../../services/session_service.dart';
 import 'dashboard_tab.dart';
 import 'delivery_fees_tab.dart';
+import 'orders_tab.dart';
 import 'services_pricing_tab.dart';
+import 'staff_tab.dart';
 
 /// هيكل لوحة الإدارة.
 ///
@@ -24,8 +26,10 @@ class _AdminHomeState extends State<AdminHome> {
 
   static const _destinations = [
     (icon: Icons.dashboard_outlined, selected: Icons.dashboard, label: 'اليوم'),
+    (icon: Icons.receipt_long_outlined, selected: Icons.receipt_long, label: 'الطلبات'),
     (icon: Icons.local_offer_outlined, selected: Icons.local_offer, label: 'الخدمات والأسعار'),
     (icon: Icons.local_shipping_outlined, selected: Icons.local_shipping, label: 'رسوم التوصيل'),
+    (icon: Icons.badge_outlined, selected: Icons.badge, label: 'الموظّفون'),
   ];
 
   @override
@@ -43,8 +47,10 @@ class _AdminHomeState extends State<AdminHome> {
 
     final body = switch (_index) {
       0 => const DashboardTab(),
-      1 => const ServicesPricingTab(),
-      _ => const DeliveryFeesTab(),
+      1 => const OrdersTab(),
+      2 => const ServicesPricingTab(),
+      3 => const DeliveryFeesTab(),
+      _ => const StaffTab(),
     };
 
     return Scaffold(

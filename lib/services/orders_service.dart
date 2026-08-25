@@ -88,18 +88,54 @@ class OrdersService {
     );
   }
 
-  Future<List<LaundryOrder>> recent(
+  /// قائمة الطلبات مرشَّحةً.
+  ///
+  /// [search] يقبل رقم الطلب أو الباركود. **ولا يبحث في اسم العميل**: البحث في
+  /// جدولٍ مضموم يجبر Postgres على مسحه كاملًا قبل أن ترشّح RLS، وهو أبطأ ممّا
+  /// يبدو. والرقم هو ما يُقال في الهاتف على أي حال.
+  Future<List<LaundryOrder>> list(
     String branchId, {
     Set<OrderStatus>? statuses,
-    int limit = 50,
+    String? search,
+    int limit = 60,
   }) async {
     var q = Db.client.from('orders').select(_selection).eq('branch_id', branchId);
+
     if (statuses != null && statuses.isNotEmpty) {
       q = q.inFilter('status', statuses.map((s) => s.wireName).toList());
     }
+
+    final term = search?.trim();
+    if (term != null && term.isNotEmpty) {
+      final asNumber = int.tryParse(term.replaceAll(RegExp(r'[^0-9]'), ''));
+      if (asNumber != null) {
+        q = q.eq('order_number', asNumber);
+      } else {
+        q = q.eq('barcode', term);
+      }
+    }
+
     final rows = await q.order('created_at', ascending: false).limit(limit);
     return (rows as List)
         .map((e) => LaundryOrder.fromMap(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<LaundryOrder> byId(String orderId) async {
+    final row =
+        await Db.client.from('orders').select(_selection).eq('id', orderId).single();
+    return LaundryOrder.fromMap(row);
+  }
+
+  /// سجلّ أحداث الطلب — «كيف وصل إلى هنا؟».
+  Future<List<OrderEvent>> events(String orderId) async {
+    final rows = await Db.client
+        .from('order_events')
+        .select('*, profiles!order_events_actor_id_fkey(full_name)')
+        .eq('order_id', orderId)
+        .order('created_at');
+    return (rows as List)
+        .map((e) => OrderEvent.fromMap(e as Map<String, dynamic>))
         .toList();
   }
 

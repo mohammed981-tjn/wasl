@@ -523,3 +523,50 @@ class DeliveryQuote {
         reason: m['reason'] as String?,
       );
 }
+
+/// حدثٌ في سجلّ الطلب.
+///
+/// السجلّ يكتبه محفّز القاعدة في المعاملة نفسها، لا التطبيق — فأوّل استثناء لا
+/// يترك طلبًا انتقل بلا أثر. وهذا ما يجعل الخلاف مع العميل يُحسم بسجلّ لا
+/// بذاكرة.
+class OrderEvent {
+  const OrderEvent({
+    required this.id,
+    required this.orderId,
+    required this.toStatus,
+    required this.createdAt,
+    this.fromStatus,
+    this.actorName,
+    this.actorRole,
+    this.note,
+  });
+
+  final String id;
+  final String orderId;
+  final OrderStatus? fromStatus;
+  final OrderStatus toStatus;
+  final DateTime createdAt;
+
+  /// فارغٌ حين ينفّذ الحدثَ الخادمُ نفسه — أي «النظام»، لا انتحالًا لشخص.
+  final String? actorName;
+  final AppRole? actorRole;
+  final String? note;
+
+  factory OrderEvent.fromMap(Map<String, dynamic> m) {
+    final profile = m['profiles'];
+    return OrderEvent(
+      id: m['id'] as String,
+      orderId: m['order_id'] as String,
+      fromStatus: m['from_status'] == null
+          ? null
+          : OrderStatus.fromWire(m['from_status'] as String),
+      toStatus: OrderStatus.fromWire(m['to_status'] as String),
+      createdAt: _date(m['created_at']) ?? DateTime.now(),
+      actorName: profile is Map ? profile['full_name'] as String? : null,
+      actorRole: m['actor_role'] == null
+          ? null
+          : AppRole.fromWire(m['actor_role'] as String),
+      note: m['note'] as String?,
+    );
+  }
+}
