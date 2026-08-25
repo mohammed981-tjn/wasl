@@ -1019,3 +1019,133 @@ class BarcodeHit {
         garmentLabel: m['garment_label'] as String?,
       );
 }
+
+/// إعدادات التوصيل والسائقين لفرع — كلُّها صفٌّ تعدّله الإدارة لا ثابتٌ في
+/// الشيفرة.
+class DriverSettings {
+  const DriverSettings({
+    required this.branchId,
+    this.requireDeliveryCode = true,
+    this.deliveryCodeLength = 4,
+    this.ttlMinutes = 180,
+    this.maxAttempts = 5,
+    this.maxActiveJobs = 0,
+    this.locationPingSeconds = 60,
+  });
+
+  final String branchId;
+  final bool requireDeliveryCode;
+  final int deliveryCodeLength;
+  final int ttlMinutes;
+  final int maxAttempts;
+
+  /// صفر = بلا سقف.
+  final int maxActiveJobs;
+  final int locationPingSeconds;
+
+  DriverSettings copyWith({
+    bool? requireDeliveryCode,
+    int? deliveryCodeLength,
+    int? ttlMinutes,
+    int? maxAttempts,
+    int? maxActiveJobs,
+    int? locationPingSeconds,
+  }) =>
+      DriverSettings(
+        branchId: branchId,
+        requireDeliveryCode: requireDeliveryCode ?? this.requireDeliveryCode,
+        deliveryCodeLength: deliveryCodeLength ?? this.deliveryCodeLength,
+        ttlMinutes: ttlMinutes ?? this.ttlMinutes,
+        maxAttempts: maxAttempts ?? this.maxAttempts,
+        maxActiveJobs: maxActiveJobs ?? this.maxActiveJobs,
+        locationPingSeconds: locationPingSeconds ?? this.locationPingSeconds,
+      );
+
+  Map<String, dynamic> toMap() => {
+        'branch_id': branchId,
+        'require_delivery_code': requireDeliveryCode,
+        'delivery_code_length': deliveryCodeLength,
+        'delivery_code_ttl_minutes': ttlMinutes,
+        'delivery_code_max_attempts': maxAttempts,
+        'max_active_jobs': maxActiveJobs,
+        'location_ping_seconds': locationPingSeconds,
+      };
+
+  factory DriverSettings.fromMap(Map<String, dynamic> m) => DriverSettings(
+        branchId: m['branch_id'] as String,
+        requireDeliveryCode: m['require_delivery_code'] as bool? ?? true,
+        deliveryCodeLength: _int(m['delivery_code_length']),
+        ttlMinutes: _int(m['delivery_code_ttl_minutes']),
+        maxAttempts: _int(m['delivery_code_max_attempts']),
+        maxActiveJobs: _int(m['max_active_jobs']),
+        locationPingSeconds: _int(m['location_ping_seconds']),
+      );
+}
+
+/// نوع المهمّة في يد السائق.
+enum JobKind {
+  pickup('استلام'),
+  delivery('تسليم');
+
+  const JobKind(this.labelAr);
+  final String labelAr;
+}
+
+/// مهمّةُ سائق: الطلبُ منظورًا إليه من الطريق لا من المغسلة.
+///
+/// **الطلب الواحد مهمّتان لا واحدة**: يُستلم من بيت العميل، ويُسلَّم إليه بعد
+/// أيام — وقد يحملهما سائقان. فالمهمّة هي ما يُعرض في القائمة، لا الطلب.
+class DriverJob {
+  const DriverJob({
+    required this.order,
+    required this.kind,
+    this.address,
+    this.customerPhone,
+  });
+
+  final LaundryOrder order;
+  final JobKind kind;
+  final Address? address;
+  final String? customerPhone;
+
+  bool get isPickup => kind == JobKind.pickup;
+
+  /// موعدُ المهمّة — فتحةُ الاستلام أو فتحةُ التسليم بحسب نوعها.
+  DateTime? get slotStart =>
+      isPickup ? order.pickupSlotStart : order.deliverySlotStart;
+
+  /// الخطوة التالية من حالة الطلب الآن.
+  OrderStatus? get nextStatus => switch (order.status) {
+        OrderStatus.pickupAssigned => OrderStatus.pickupEnRoute,
+        OrderStatus.pickupEnRoute => OrderStatus.pickedUp,
+        OrderStatus.deliveryAssigned => OrderStatus.outForDelivery,
+        OrderStatus.outForDelivery => OrderStatus.delivered,
+        _ => null,
+      };
+
+  /// الفعلُ الأخير في المهمّة: هو وحده الذي يحتاج إثباتًا (ورمزًا في التسليم).
+  bool get isFinalStep =>
+      order.status == OrderStatus.pickupEnRoute ||
+      order.status == OrderStatus.outForDelivery;
+
+  factory DriverJob.fromMap(Map<String, dynamic> m, String driverId) {
+    final order = LaundryOrder.fromMap(m);
+    // الحالة تحدّد النوع لا معرّفُ السائق: قد يكون هو نفسه سائقَ الطرفين،
+    // فالسؤال «أين الطلب الآن» لا «من المسنَد إليه».
+    final kind = switch (order.status) {
+      OrderStatus.pickupAssigned || OrderStatus.pickupEnRoute => JobKind.pickup,
+      _ => JobKind.delivery,
+    };
+    final addrKey = kind == JobKind.pickup ? 'pickup_address' : 'delivery_address';
+    final addr = m[addrKey];
+    final profile = m['profiles'];
+    return DriverJob(
+      order: order,
+      kind: kind,
+      address: addr is Map
+          ? Address.fromMap(Map<String, dynamic>.from(addr))
+          : null,
+      customerPhone: profile is Map ? profile['phone'] as String? : null,
+    );
+  }
+}

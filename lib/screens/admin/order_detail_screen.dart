@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../../models/enums.dart';
 import '../../models/models.dart';
 import '../../services/orders_service.dart';
+import '../../services/session_service.dart';
 import '../../services/supabase_service.dart';
 import '../../widgets/async_view.dart';
 import 'orders_tab.dart';
@@ -25,7 +27,9 @@ class OrderDetailScreen extends StatefulWidget {
 
 class _OrderDetailScreenState extends State<OrderDetailScreen> {
   final _orders = const OrdersService();
-  late Future<(LaundryOrder, List<OrderEvent>, List<OrderStatus>)> _future;
+  late Future<
+      (LaundryOrder, List<OrderEvent>, List<OrderStatus>, List<BranchDriver>)>
+      _future;
   bool _busy = false;
 
   @override
@@ -40,9 +44,33 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         final order = await _orders.byId(widget.orderId);
         final events = await _orders.events(widget.orderId);
         final next = await _orders.allowedNext(order.status);
-        return (order, events, next);
+        // فشلُ جلب السائقين لا يُفشل الشاشة: التفصيل والسجلّ يُقرآن ولو تعذّر
+        // الإسناد.
+        List<BranchDriver> drivers = const [];
+        try {
+          drivers = await _orders.branchDrivers(order.branchId);
+        } catch (_) {
+          drivers = const [];
+        }
+        return (order, events, next, drivers);
       }();
     });
+  }
+
+  Future<void> _assign(bool pickup, String? driverId) async {
+    setState(() => _busy = true);
+    try {
+      await _orders.assignDriver(
+          orderId: widget.orderId, pickup: pickup, driverId: driverId);
+      _reload();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(humanizeDbError(e))));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _advance(OrderStatus to) async {
@@ -69,17 +97,34 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           IconButton(onPressed: _reload, icon: const Icon(Icons.refresh)),
         ],
       ),
-      body: AsyncView<(LaundryOrder, List<OrderEvent>, List<OrderStatus>)>(
+      body: AsyncView<
+          (LaundryOrder, List<OrderEvent>, List<OrderStatus>, List<BranchDriver>)>(
         future: _future,
         onRetry: _reload,
         builder: (context, data) {
-          final (order, events, next) = data;
+          final (order, events, next, drivers) = data;
+          final session = context.watch<SessionService>();
+          final canAssign = session.isSuperAdmin ||
+              session.roles.any((r) =>
+                  r.branchId == order.branchId &&
+                  (r.role == AppRole.branchManager ||
+                      r.role == AppRole.customerService));
+
           return ListView(
             padding: const EdgeInsets.all(20),
             children: [
               _Header(order: order),
               const SizedBox(height: 20),
               _ItemsCard(order: order),
+              if (canAssign) ...[
+                const SizedBox(height: 20),
+                _DispatchCard(
+                  order: order,
+                  drivers: drivers,
+                  busy: _busy,
+                  onAssign: _assign,
+                ),
+              ],
               const SizedBox(height: 20),
               _NextActions(
                 next: next,
@@ -376,6 +421,108 @@ class _Timeline extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// الإسناد: من يستلم ومن يسلّم.
+///
+/// **مرحلتان لا خانةٌ واحدة**: الطلب يُستلم في يومٍ ويُسلَّم في آخر، وقد
+/// يحملهما سائقان — فخانةٌ واحدة تُخفي هذه الحقيقة وتُجبر الإدارة على إعادة
+/// الكتابة فوق إسنادٍ لم ينته بعد.
+class _DispatchCard extends StatelessWidget {
+  const _DispatchCard({
+    required this.order,
+    required this.drivers,
+    required this.busy,
+    required this.onAssign,
+  });
+
+  final LaundryOrder order;
+  final List<BranchDriver> drivers;
+  final bool busy;
+  final void Function(bool pickup, String? driverId) onAssign;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('الإسناد',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            if (drivers.isEmpty)
+              Text('لا سائق بدورٍ في هذا الفرع بعد — يُضاف من «الموظّفون».',
+                  style: Theme.of(context).textTheme.bodySmall)
+            else ...[
+              Text('الرقم بجانب الاسم: مهامُّه المفتوحة الآن.',
+                  style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 12),
+              _Picker(
+                label: 'سائق الاستلام',
+                value: order.pickupDriverId,
+                drivers: drivers,
+                enabled: !busy,
+                onChanged: (v) => onAssign(true, v),
+              ),
+              const SizedBox(height: 12),
+              _Picker(
+                label: 'سائق التسليم',
+                value: order.deliveryDriverId,
+                drivers: drivers,
+                enabled: !busy,
+                onChanged: (v) => onAssign(false, v),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Picker extends StatelessWidget {
+  const _Picker({
+    required this.label,
+    required this.value,
+    required this.drivers,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String? value;
+  final List<BranchDriver> drivers;
+  final bool enabled;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    // المسنَد قد لا يكون في القائمة (سُحب دوره بعد الإسناد): يُعرض «بلا إسناد»
+    // بدل أن ينهار الـDropdown على قيمةٍ لا عنصر لها.
+    final known = drivers.any((d) => d.id == value);
+
+    return DropdownButtonFormField<String?>(
+      initialValue: known ? value : null,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        isDense: true,
+        helperText: value != null && !known ? 'المسنَد لم يعد سائقًا في الفرع' : null,
+      ),
+      items: [
+        const DropdownMenuItem<String?>(value: null, child: Text('بلا إسناد')),
+        for (final d in drivers)
+          DropdownMenuItem<String?>(
+            value: d.id,
+            child: Text('${d.name}  •  ${d.activeJobs}'),
+          ),
+      ],
+      onChanged: enabled ? onChanged : null,
     );
   }
 }

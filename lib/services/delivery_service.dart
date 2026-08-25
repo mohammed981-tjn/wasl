@@ -102,3 +102,24 @@ class DeliveryService {
         .toList();
   }
 }
+
+/// إعدادات السائقين ورمز التسليم — يقرؤها التطبيق وتكتبها الإدارة.
+extension DriverSettingsAdmin on DeliveryService {
+  Future<DriverSettings?> driverSettings(String branchId) async {
+    final rows = await Db.client
+        .from('driver_settings')
+        .select()
+        .eq('branch_id', branchId)
+        .limit(1);
+    final list = rows as List;
+    return list.isEmpty
+        ? null
+        : DriverSettings.fromMap(list.first as Map<String, dynamic>);
+  }
+
+  Future<void> saveDriverSettings(DriverSettings s) async {
+    await Db.client
+        .from('driver_settings')
+        .upsert(s.toMap(), onConflict: 'branch_id');
+  }
+}

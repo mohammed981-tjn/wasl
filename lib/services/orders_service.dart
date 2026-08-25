@@ -163,3 +163,83 @@ class OrdersService {
         .toList();
   }
 }
+
+/// سائقٌ متاحٌ للإسناد في فرع.
+class BranchDriver {
+  const BranchDriver({required this.id, required this.name, this.activeJobs = 0});
+
+  final String id;
+  final String name;
+
+  /// كم مهمّةً يحمل الآن — يُعرض بجانب اسمه كي لا يُحمَّل من هو محمَّل.
+  final int activeJobs;
+
+  BranchDriver withJobs(int n) =>
+      BranchDriver(id: id, name: name, activeJobs: n);
+}
+
+/// الإسناد: من يستلم ومن يسلّم.
+extension OrdersDispatch on OrdersService {
+  static const _activeJobStatuses = [
+    'pickup_assigned',
+    'pickup_en_route',
+    'delivery_assigned',
+    'out_for_delivery',
+  ];
+
+  /// سائقو الفرع وحِملُ كلٍّ منهم.
+  ///
+  /// **الحِمل يُعرض مع الاسم**: قائمةُ أسماءٍ مجرّدة تدفع المُسنِد إلى أوّل
+  /// اسمٍ في القائمة دائمًا، فيُحمَّل واحدٌ ويفرغ الباقي.
+  Future<List<BranchDriver>> branchDrivers(String branchId) async {
+    final rows = await Db.client
+        .from('user_roles')
+        .select('user_id, profiles!user_roles_user_id_fkey(id, full_name)')
+        .eq('role', 'driver')
+        .eq('branch_id', branchId);
+
+    final drivers = <String, BranchDriver>{};
+    for (final r in (rows as List).cast<Map<String, dynamic>>()) {
+      final p = r['profiles'];
+      final id = r['user_id'] as String;
+      drivers[id] = BranchDriver(
+        id: id,
+        name: (p is Map ? p['full_name'] as String? : null) ?? 'سائق',
+      );
+    }
+    if (drivers.isEmpty) return const [];
+
+    final loads = await Db.client
+        .from('orders')
+        .select('pickup_driver_id, delivery_driver_id')
+        .eq('branch_id', branchId)
+        .inFilter('status', _activeJobStatuses);
+
+    final counts = <String, int>{};
+    for (final r in (loads as List).cast<Map<String, dynamic>>()) {
+      for (final k in ['pickup_driver_id', 'delivery_driver_id']) {
+        final v = r[k] as String?;
+        if (v != null) counts[v] = (counts[v] ?? 0) + 1;
+      }
+    }
+
+    return drivers.values
+        .map((d) => d.withJobs(counts[d.id] ?? 0))
+        .toList()
+      ..sort((a, b) => a.activeJobs.compareTo(b.activeJobs));
+  }
+
+  /// إسنادٌ أو فكُّه (`driverId = null`).
+  ///
+  /// والقاعدة هي الحَكَم: ترفض من ليس سائقًا في الفرع، ومن بلغ سقف مهامّه،
+  /// ومن ليس له حقُّ الإسناد أصلًا.
+  Future<void> assignDriver({
+    required String orderId,
+    required bool pickup,
+    required String? driverId,
+  }) async {
+    await Db.client.from('orders').update({
+      pickup ? 'pickup_driver_id' : 'delivery_driver_id': driverId,
+    }).eq('id', orderId);
+  }
+}

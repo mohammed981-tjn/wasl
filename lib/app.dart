@@ -7,6 +7,7 @@ import 'core/theme/app_theme.dart';
 import 'screens/admin/admin_home.dart';
 import 'screens/auth/sign_in_screen.dart';
 import 'screens/customer/customer_home.dart';
+import 'screens/driver/driver_home.dart';
 import 'screens/laundry/laundry_home.dart';
 import 'services/cart.dart';
 import 'services/session_service.dart';
@@ -70,44 +71,7 @@ class _FlavorGate extends StatelessWidget {
       AppFlavor.admin => const AdminHome(),
       AppFlavor.customer => const CustomerHome(),
       AppFlavor.laundry => const LaundryHome(),
-      _ => _ComingSoon(flavor: flavor),
+      AppFlavor.driver => const DriverHome(),
     };
-  }
-}
-
-/// نكهةٌ لم تُبنَ بعد.
-///
-/// وهذه شاشةٌ صريحةٌ عمدًا: «قيد التجهيز» أصدقُ من شاشةٍ تبدو عاملةً ببيانات
-/// وهمية — وأوّل ما مُسح من هذا المستودع كان بالضبط ذلك النوع من الشاشات.
-class _ComingSoon extends StatelessWidget {
-  const _ComingSoon({required this.flavor});
-
-  final AppFlavor flavor;
-
-  @override
-  Widget build(BuildContext context) {
-    final session = context.read<SessionService>();
-    return Scaffold(
-      appBar: AppBar(title: Text(flavor.titleAr)),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.construction_outlined, size: 48),
-            const SizedBox(height: 12),
-            Text('${flavor.titleAr} — لم تُبنَ بعد',
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text('المبنيّ حتى الآن: الإدارة والعميل والمغسلة',
-                style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 20),
-            TextButton(
-              onPressed: session.signOut,
-              child: const Text('تسجيل الخروج'),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

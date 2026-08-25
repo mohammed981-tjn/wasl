@@ -23,7 +23,7 @@ class DeliveryFeesTab extends StatefulWidget {
 
 class _DeliveryFeesTabState extends State<DeliveryFeesTab> {
   final _delivery = const DeliveryService();
-  late Future<(DeliverySettings?, List<DistanceTier>)> _future;
+  late Future<(DeliverySettings?, List<DistanceTier>, DriverSettings?)> _future;
   String? _branchId;
 
   @override
@@ -40,9 +40,13 @@ class _DeliveryFeesTabState extends State<DeliveryFeesTab> {
     setState(() {
       final id = _branchId;
       _future = id == null
-          ? Future.value((null, const <DistanceTier>[]))
-          : Future.wait([_delivery.settings(id), _delivery.tiers(id)])
-              .then((r) => (r[0] as DeliverySettings?, r[1] as List<DistanceTier>));
+          ? Future.value((null, const <DistanceTier>[], null))
+          : () async {
+              final s = await _delivery.settings(id);
+              final t = await _delivery.tiers(id);
+              final d = await _delivery.driverSettings(id);
+              return (s, t, d);
+            }();
     });
   }
 
@@ -65,15 +69,28 @@ class _DeliveryFeesTabState extends State<DeliveryFeesTab> {
     }
   }
 
+  Future<void> _saveDriver(DriverSettings s) async {
+    try {
+      await _delivery.saveDriverSettings(s);
+      _reload();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('حُفظت إعدادات التسليم.')));
+      }
+    } catch (e) {
+      _showError(e);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final canEdit = _canEdit;
 
-    return AsyncView<(DeliverySettings?, List<DistanceTier>)>(
+    return AsyncView<(DeliverySettings?, List<DistanceTier>, DriverSettings?)>(
       future: _future,
       onRetry: _reload,
       builder: (context, data) {
-        final (settings, tiers) = data;
+        final (settings, tiers, driverSettings) = data;
         final branchId = _branchId;
         if (branchId == null) {
           return const Center(child: Text('اختر فرعًا'));
@@ -121,6 +138,14 @@ class _DeliveryFeesTabState extends State<DeliveryFeesTab> {
                 onChanged: _reload,
                 onError: _showError,
               ),
+
+            const SizedBox(height: 20),
+            _DriverSettingsCard(
+              settings: driverSettings ?? DriverSettings(branchId: branchId),
+              stored: driverSettings != null,
+              canEdit: canEdit,
+              onSave: _saveDriver,
+            ),
 
             const SizedBox(height: 20),
             _QuotePreview(branchId: branchId, delivery: _delivery),
@@ -583,6 +608,148 @@ class _QuotePreviewState extends State<_QuotePreview> {
                           style: Theme.of(context).textTheme.bodySmall),
                   ],
                 ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// إعدادات التسليم والسائقين.
+///
+/// **الافتراضُ آمنٌ لا معطَّل**: فرعٌ لم يُحفظ له صفٌّ بعدُ يعمل برمزِ تسليمٍ
+/// مشترَط — لأن القاعدة تفترض ذلك حين لا تجد إعدادًا. فما يُعرض هنا قبل الحفظ
+/// هو ما ينفَّذ فعلًا، لا شاشةٌ فارغة تُوهم أن شيئًا لم يُضبط.
+class _DriverSettingsCard extends StatefulWidget {
+  const _DriverSettingsCard({
+    required this.settings,
+    required this.stored,
+    required this.canEdit,
+    required this.onSave,
+  });
+
+  final DriverSettings settings;
+  final bool stored;
+  final bool canEdit;
+  final void Function(DriverSettings) onSave;
+
+  @override
+  State<_DriverSettingsCard> createState() => _DriverSettingsCardState();
+}
+
+class _DriverSettingsCardState extends State<_DriverSettingsCard> {
+  late bool _requireCode = widget.settings.requireDeliveryCode;
+  late final _length =
+      TextEditingController(text: '${widget.settings.deliveryCodeLength}');
+  late final _ttl = TextEditingController(text: '${widget.settings.ttlMinutes}');
+  late final _attempts =
+      TextEditingController(text: '${widget.settings.maxAttempts}');
+  late final _jobs =
+      TextEditingController(text: '${widget.settings.maxActiveJobs}');
+  late final _ping =
+      TextEditingController(text: '${widget.settings.locationPingSeconds}');
+
+  @override
+  void dispose() {
+    _length.dispose();
+    _ttl.dispose();
+    _attempts.dispose();
+    _jobs.dispose();
+    _ping.dispose();
+    super.dispose();
+  }
+
+  int _read(TextEditingController c, int fallback) =>
+      int.tryParse(c.text.trim()) ?? fallback;
+
+  void _save() {
+    widget.onSave(widget.settings.copyWith(
+      requireDeliveryCode: _requireCode,
+      deliveryCodeLength: _read(_length, 4),
+      ttlMinutes: _read(_ttl, 180),
+      maxAttempts: _read(_attempts, 5),
+      maxActiveJobs: _read(_jobs, 0),
+      locationPingSeconds: _read(_ping, 60),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.canEdit;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('التسليم والسائقون',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            Text(
+              widget.stored
+                  ? 'رمزُ التسليم وسقفُ المهامّ ونبضُ الموقع.'
+                  : 'لم يُحفظ صفٌّ لهذا الفرع بعد — والقيم المعروضة هي الافتراض '
+                      'الذي تعمل به القاعدة الآن.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _requireCode,
+              onChanged: enabled ? (v) => setState(() => _requireCode = v) : null,
+              title: const Text('اشتراط رمز التسليم'),
+              subtitle: const Text(
+                  'يصل العميل في رسالته، ويُدخله السائق عند الباب. وإطفاؤه '
+                  'يجعل التسليم بكلمة السائق وحدها.'),
+            ),
+            const SizedBox(height: 8),
+
+            _Row(children: [
+              _Field(
+                label: 'طول الرمز',
+                controller: _length,
+                enabled: enabled && _requireCode,
+                helper: 'من ٤ إلى ٨',
+              ),
+              _Field(
+                label: 'صلاحيته (دقيقة)',
+                controller: _ttl,
+                enabled: enabled && _requireCode,
+                helper: 'من ٥ إلى ١٤٤٠',
+              ),
+              _Field(
+                label: 'سقف المحاولات',
+                controller: _attempts,
+                enabled: enabled && _requireCode,
+                helper: 'بلا سقفٍ يُخمَّن',
+              ),
+            ]),
+            const SizedBox(height: 16),
+
+            _Row(children: [
+              _Field(
+                label: 'سقف مهامّ السائق',
+                controller: _jobs,
+                enabled: enabled,
+                helper: 'صفر = بلا سقف',
+              ),
+              _Field(
+                label: 'نبض الموقع (ثانية)',
+                controller: _ping,
+                enabled: enabled,
+                helper: 'من ١٥ إلى ٩٠٠',
+              ),
+            ]),
+
+            if (enabled) ...[
+              const SizedBox(height: 16),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: FilledButton(onPressed: _save, child: const Text('حفظ')),
               ),
             ],
           ],
