@@ -1,3 +1,4 @@
+import '../models/enums.dart';
 import 'supabase_service.dart';
 
 double _num(dynamic v) => switch (v) {
@@ -295,5 +296,87 @@ extension RatingsReports on ReportsService {
         if ((a.stars <= 3) != (b.stars <= 3)) return a.stars <= 3 ? -1 : 1;
         return b.createdAt.compareTo(a.createdAt);
       });
+  }
+}
+
+/// طلبٌ يُتوقَّع أن يتأخّر.
+class OrderAtRisk {
+  const OrderAtRisk({
+    required this.orderId,
+    required this.orderNumber,
+    required this.status,
+    required this.promisedReadyAt,
+    required this.expectedReadyAt,
+    required this.lateByMinutes,
+    required this.minutesInStage,
+    required this.samples,
+    required this.confident,
+    required this.alreadyLate,
+    this.customerName,
+    this.isExpress = false,
+  });
+
+  final String orderId;
+  final int orderNumber;
+  final OrderStatus status;
+  final String? customerName;
+  final bool isExpress;
+  final DateTime promisedReadyAt;
+  final DateTime expectedReadyAt;
+
+  /// كم دقيقةً يُتوقَّع أن يتجاوز بها وعدَه.
+  final int lateByMinutes;
+  final int minutesInStage;
+
+  /// عددُ الطلبات السابقة التي بُني عليها التقدير — أضعفُ حلقةٍ في السلسلة.
+  final int samples;
+
+  /// هل يكفي التاريخ ليُصدَّق التقدير؟ **يُعرض ولا يُخفى**: رقمٌ مبنيٌّ على
+  /// طلبين يُصدَّق كما يُصدَّق المبنيّ على مئة، والفرق بينهما قرارٌ خاطئ.
+  final bool confident;
+
+  /// تجاوز وعدَه فعلًا — لا توقّعًا. والفرق هو الفائدة كلُّها.
+  final bool alreadyLate;
+
+  String get lateLabel {
+    final m = lateByMinutes.abs();
+    if (m < 60) return '$m د';
+    final h = m ~/ 60;
+    final rest = m % 60;
+    return rest == 0 ? '$h س' : '$h س $rest د';
+  }
+
+  factory OrderAtRisk.fromMap(Map<String, dynamic> m) => OrderAtRisk(
+        orderId: m['order_id'] as String,
+        orderNumber: _asInt(m['order_number']),
+        status: OrderStatus.fromWire(m['status'] as String),
+        customerName: m['customer_name'] as String?,
+        isExpress: m['is_express'] as bool? ?? false,
+        promisedReadyAt:
+            DateTime.tryParse('${m['promised_ready_at']}')?.toLocal() ??
+                DateTime.now(),
+        expectedReadyAt:
+            DateTime.tryParse('${m['expected_ready_at']}')?.toLocal() ??
+                DateTime.now(),
+        lateByMinutes: _asInt(m['late_by_minutes']),
+        minutesInStage: _asInt(m['minutes_in_stage']),
+        samples: _asInt(m['samples']),
+        confident: m['confident'] as bool? ?? false,
+        alreadyLate: m['already_late'] as bool? ?? false,
+      );
+}
+
+extension RiskReports on ReportsService {
+  /// الطلبات المعرَّضة للتأخير — من مُدد الأطوار كما وقعت في هذا الفرع.
+  Future<List<OrderAtRisk>> atRisk(String branchId,
+      {int historyDays = 30, int minSamples = 5}) async {
+    final rows = await Db.client.rpc('orders_at_risk', params: {
+      'p_branch': branchId,
+      'p_history_days': historyDays,
+      'p_min_samples': minSamples,
+    });
+    return (rows as List)
+        .map((e) => OrderAtRisk.fromMap(e as Map<String, dynamic>))
+        .toList();
   }
 }
