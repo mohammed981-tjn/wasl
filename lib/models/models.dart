@@ -1244,3 +1244,119 @@ class Payment {
     );
   }
 }
+
+/// موقعُ سائقٍ الآن.
+class DriverPin {
+  const DriverPin({
+    required this.driverId,
+    required this.lat,
+    required this.lng,
+    required this.isOnline,
+    required this.updatedAt,
+    this.name,
+    this.accuracyM,
+    this.activeJobs = 0,
+  });
+
+  final String driverId;
+  final double lat;
+  final double lng;
+  final bool isOnline;
+  final DateTime updatedAt;
+  final String? name;
+  final double? accuracyM;
+  final int activeJobs;
+
+  /// **الموقع القديم أخطرُ من غيابه**: دبّوسٌ عمرُه ساعةٌ يبدو كسائقٍ واقف،
+  /// فيُرسَل إليه طلبٌ وهو في حيٍّ آخر. فالقِدَم يُعرض لا يُخفى.
+  Duration get age => DateTime.now().difference(updatedAt);
+  bool get isStale => age.inMinutes >= 10;
+
+  String get ageLabel {
+    final m = age.inMinutes;
+    if (m < 1) return 'الآن';
+    if (m < 60) return 'قبل $m د';
+    final h = age.inHours;
+    if (h < 24) return 'قبل $h س';
+    return 'قبل ${age.inDays} ي';
+  }
+
+  DriverPin withMeta({String? name, int? activeJobs}) => DriverPin(
+        driverId: driverId,
+        lat: lat,
+        lng: lng,
+        isOnline: isOnline,
+        updatedAt: updatedAt,
+        name: name ?? this.name,
+        accuracyM: accuracyM,
+        activeJobs: activeJobs ?? this.activeJobs,
+      );
+
+  factory DriverPin.fromMap(Map<String, dynamic> m) => DriverPin(
+        driverId: m['driver_id'] as String,
+        lat: _num(m['lat']),
+        lng: _num(m['lng']),
+        isOnline: m['is_online'] as bool? ?? false,
+        updatedAt: _date(m['updated_at']) ?? DateTime.now(),
+        accuracyM: m['accuracy_m'] == null ? null : _num(m['accuracy_m']),
+      );
+}
+
+/// منطقةُ توصيلٍ كما تُرسم.
+class DeliveryZone {
+  const DeliveryZone({
+    required this.id,
+    required this.branchId,
+    required this.nameAr,
+    required this.ring,
+    required this.pickupFee,
+    required this.deliveryFee,
+    this.combinedFee,
+    this.priority = 0,
+    this.isActive = true,
+    this.areaKm2 = 0,
+    this.centerLat = 0,
+    this.centerLng = 0,
+  });
+
+  final String id;
+  final String branchId;
+  final String nameAr;
+
+  /// حلقةُ المضلَّع الخارجية — (lat, lng) بترتيب الرسم.
+  final List<(double, double)> ring;
+
+  final double pickupFee;
+  final double deliveryFee;
+  final double? combinedFee;
+  final int priority;
+  final bool isActive;
+  final double areaKm2;
+  final double centerLat;
+  final double centerLng;
+
+  factory DeliveryZone.fromMap(Map<String, dynamic> m) {
+    // GeoJSON يعطي [lng, lat] لا [lat, lng] — وقلبُهما يضع المدينة المنوّرة
+    // في الصومال، ويبدو الخطأ «خريطةً فارغة» لا رسالةَ عطل.
+    final geo = m['area_geojson'];
+    final coords = geo is Map ? geo['coordinates'] : null;
+    final outer = coords is List && coords.isNotEmpty ? coords.first : const [];
+    return DeliveryZone(
+      id: m['id'] as String,
+      branchId: m['branch_id'] as String,
+      nameAr: m['name_ar'] as String,
+      ring: [
+        for (final p in (outer as List))
+          if (p is List && p.length >= 2) (_num(p[1]), _num(p[0])),
+      ],
+      pickupFee: _num(m['pickup_fee']),
+      deliveryFee: _num(m['delivery_fee']),
+      combinedFee: m['combined_fee'] == null ? null : _num(m['combined_fee']),
+      priority: _int(m['priority']),
+      isActive: m['is_active'] as bool? ?? true,
+      areaKm2: _num(m['area_km2']),
+      centerLat: _num(m['center_lat']),
+      centerLng: _num(m['center_lng']),
+    );
+  }
+}

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 // intl يصدّر `TextDirection` خاصًّا به يحجب نظيرَ Flutter، فيُخفى.
 import 'package:intl/intl.dart' hide TextDirection;
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/enums.dart';
@@ -11,6 +12,7 @@ import '../../services/delivery_service.dart';
 import '../../services/payments_service.dart';
 import '../../services/session_service.dart';
 import '../../services/supabase_service.dart';
+import 'location_picker_screen.dart';
 import 'order_tracking_screen.dart';
 
 /// إتمام الطلب: العنوان، والموعد، والكوبون، والتأكيد.
@@ -743,25 +745,37 @@ class _AddressDialogState extends State<_AddressDialog> {
   final _building = TextEditingController();
   final _hotel = TextEditingController();
   final _room = TextEditingController();
-  late final TextEditingController _lat;
-  late final TextEditingController _lng;
   AddressKind _kind = AddressKind.home;
   DateTime? _checkout;
 
-  @override
-  void initState() {
-    super.initState();
-    _lat = TextEditingController(text: widget.defaultLat.toStringAsFixed(6));
-    _lng = TextEditingController(text: widget.defaultLng.toStringAsFixed(6));
-  }
+  /// الموقع المختار. يبدأ من الفرع لا من الصفر: نقطةٌ في المدينة أصدقُ بدايةً
+  /// من نقطةٍ في المحيط، والعميل يحرّكها خطوةً واحدة.
+  late LatLng _at = LatLng(widget.defaultLat, widget.defaultLng);
+  bool _picked = false;
 
   @override
   void dispose() {
-    for (final c in [_label, _district, _street, _building, _hotel, _room,
-                     _lat, _lng]) {
+    for (final c in [_label, _district, _street, _building, _hotel, _room]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _pickOnMap() async {
+    final picked = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(
+        builder: (_) => LocationPickerScreen(
+          initial: _at,
+          branchAt: LatLng(widget.defaultLat, widget.defaultLng),
+          title: 'موقع الاستلام',
+        ),
+      ),
+    );
+    if (picked == null) return;
+    setState(() {
+      _at = picked;
+      _picked = true;
+    });
   }
 
   bool get _valid {
@@ -856,34 +870,29 @@ class _AddressDialogState extends State<_AddressDialog> {
               ],
 
               const SizedBox(height: 16),
-              // الإحداثيّات نصًّا مؤقّتًا حتى تُضاف الخريطة: رسمُ التوصيل يُحسب
-              // منها، فتركُها فارغةً يجعله خاطئًا بصمت.
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _lat,
-                      keyboardType: TextInputType.number,
-                      textDirection: TextDirection.ltr,
-                      decoration: const InputDecoration(labelText: 'خط العرض'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _lng,
-                      keyboardType: TextInputType.number,
-                      textDirection: TextDirection.ltr,
-                      decoration: const InputDecoration(labelText: 'خط الطول'),
-                    ),
-                  ),
-                ],
+              // **الموقع ليس حقلًا اختياريًّا**: رسمُ التوصيل يُحسب منه، ومن
+              // يقبل موقع الفرع افتراضًا يُحسب له رسمُ صفر — فيُنبَّه صراحةً.
+              OutlinedButton.icon(
+                onPressed: _pickOnMap,
+                icon: const Icon(Icons.map_outlined, size: 18),
+                label: Text(_picked ? 'تغيير الموقع' : 'حدّد الموقع على الخريطة'),
+                style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44)),
               ),
               const SizedBox(height: 6),
               Align(
                 alignment: AlignmentDirectional.centerStart,
-                child: Text('اختيار الموقع على خريطة يأتي لاحقًا.',
-                    style: Theme.of(context).textTheme.bodySmall),
+                child: Text(
+                  _picked
+                      ? 'الموقع: ${_at.latitude.toStringAsFixed(5)}، '
+                          '${_at.longitude.toStringAsFixed(5)}'
+                      : 'لم يُحدَّد بعد — سيُحسب الرسم من موقع الفرع، وهو غالبًا خطأ.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: _picked
+                            ? null
+                            : Theme.of(context).colorScheme.error,
+                      ),
+                ),
               ),
             ],
           ),
@@ -902,10 +911,8 @@ class _AddressDialogState extends State<_AddressDialog> {
                       id: '',
                       userId: widget.userId,
                       kind: _kind,
-                      lat: double.tryParse(_lat.text.trim()) ??
-                          widget.defaultLat,
-                      lng: double.tryParse(_lng.text.trim()) ??
-                          widget.defaultLng,
+                      lat: _at.latitude,
+                      lng: _at.longitude,
                       label: _label.text.trim().isEmpty
                           ? null
                           : _label.text.trim(),

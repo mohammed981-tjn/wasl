@@ -6,6 +6,7 @@ import '../../services/session_service.dart';
 import 'coupons_tab.dart';
 import 'dashboard_tab.dart';
 import 'delivery_fees_tab.dart';
+import 'map_tab.dart';
 import 'orders_tab.dart';
 import 'payments_tab.dart';
 import 'reports_tab.dart';
@@ -34,6 +35,7 @@ class _AdminHomeState extends State<AdminHome> {
     (icon: Icons.receipt_long_outlined, selected: Icons.receipt_long, label: 'الطلبات'),
     (icon: Icons.local_offer_outlined, selected: Icons.local_offer, label: 'الخدمات والأسعار'),
     (icon: Icons.local_shipping_outlined, selected: Icons.local_shipping, label: 'رسوم التوصيل'),
+    (icon: Icons.map_outlined, selected: Icons.map, label: 'الخريطة'),
     (icon: Icons.schedule_outlined, selected: Icons.schedule, label: 'المواعيد والطاقة'),
     (icon: Icons.confirmation_number_outlined, selected: Icons.confirmation_number, label: 'الكوبونات'),
     (icon: Icons.badge_outlined, selected: Icons.badge, label: 'الموظّفون'),
@@ -60,11 +62,12 @@ class _AdminHomeState extends State<AdminHome> {
       1 => const OrdersTab(),
       2 => const ServicesPricingTab(),
       3 => const DeliveryFeesTab(),
-      4 => const ScheduleTab(),
-      5 => const CouponsTab(),
-      6 => const StaffTab(),
-      7 => const PaymentsTab(),
-      8 => const TemplatesTab(),
+      4 => const MapTab(),
+      5 => const ScheduleTab(),
+      6 => const CouponsTab(),
+      7 => const StaffTab(),
+      8 => const PaymentsTab(),
+      9 => const TemplatesTab(),
       _ => const ReportsTab(),
     };
 

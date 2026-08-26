@@ -1,4 +1,5 @@
 import '../models/models.dart';
+import 'orders_service.dart';
 import 'supabase_service.dart';
 
 /// إعدادات التوصيل وتسعيره.
@@ -121,5 +122,72 @@ extension DriverSettingsAdmin on DeliveryService {
     await Db.client
         .from('driver_settings')
         .upsert(s.toMap(), onConflict: 'branch_id');
+  }
+}
+
+/// الخرائط: مواقع السائقين ومناطق التوصيل.
+extension MapsService on DeliveryService {
+  /// مواقع سائقي الفرع، بأسمائهم وحِملهم.
+  ///
+  /// **من لا موقع له لا يُعرض على خريطة** — ويُعرف من قائمة السائقين أنه غائب.
+  Future<List<DriverPin>> driverPins(String branchId) async {
+    final drivers = await const OrdersService().branchDrivers(branchId);
+    if (drivers.isEmpty) return const [];
+
+    final rows = await Db.client
+        .from('driver_locations')
+        .select()
+        .inFilter('driver_id', drivers.map((d) => d.id).toList());
+
+    final meta = {for (final d in drivers) d.id: d};
+    return (rows as List).map((e) {
+      final pin = DriverPin.fromMap(e as Map<String, dynamic>);
+      final d = meta[pin.driverId];
+      return pin.withMeta(name: d?.name, activeJobs: d?.activeJobs);
+    }).toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  }
+
+  Future<List<DeliveryZone>> zones(String branchId) async {
+    final rows = await Db.client
+        .from('delivery_zones_map')
+        .select()
+        .eq('branch_id', branchId)
+        .order('priority', ascending: false);
+    return (rows as List)
+        .map((e) => DeliveryZone.fromMap(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// حفظُ منطقة. الحلقةُ تُغلق والصحّةُ تُفحص في القاعدة لا هنا.
+  Future<String> saveZone({
+    String? id,
+    required String branchId,
+    required String nameAr,
+    required List<(double, double)> ring,
+    double pickupFee = 0,
+    double deliveryFee = 0,
+    double? combinedFee,
+    int priority = 0,
+    bool isActive = true,
+  }) async {
+    final res = await Db.client.rpc('save_delivery_zone', params: {
+      'p_branch': branchId,
+      'p_name': nameAr,
+      'p_points': [
+        for (final (lat, lng) in ring) {'lat': lat, 'lng': lng},
+      ],
+      'p_pickup_fee': pickupFee,
+      'p_delivery_fee': deliveryFee,
+      'p_combined_fee': combinedFee,
+      'p_priority': priority,
+      'p_active': isActive,
+      'p_id': id,
+    });
+    return res as String;
+  }
+
+  Future<void> deleteZone(String id) async {
+    await Db.client.from('delivery_zones').delete().eq('id', id);
   }
 }
