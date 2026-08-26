@@ -9,6 +9,7 @@ import '../../models/models.dart';
 import '../../services/cart.dart';
 import '../../services/customer_service.dart';
 import '../../services/delivery_service.dart';
+import '../../services/feedback_service.dart';
 import '../../services/payments_service.dart';
 import '../../services/session_service.dart';
 import '../../services/supabase_service.dart';
@@ -40,6 +41,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   CheckoutQuote? _quote;
   PaymentMethod _payment = PaymentMethod.cashOnDelivery;
   bool _cardAvailable = false;
+  LoyaltyState? _loyalty;
+  bool _useLoyalty = false;
 
   bool _loading = true;
   bool _placing = false;
@@ -115,6 +118,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final subtotal = context.read<Cart>().subtotal;
 
     try {
+      // النقاط تُسأل مع كل تسعير: ما يُسمح بصرفه يتبع مبلغ الفاتورة.
       final q = await _service.quote(
         laundryId: branch.laundryId,
         branchId: branch.id,
@@ -124,7 +128,27 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         lng: address.lng,
         couponCode: _couponCtl.text,
       );
-      if (mounted) setState(() => _quote = q);
+
+      LoyaltyState? loyalty;
+      try {
+        loyalty = await const FeedbackService().loyalty(
+          userId: userId,
+          laundryId: branch.laundryId,
+          subtotal: subtotal,
+        );
+      } catch (_) {
+        loyalty = null;
+      }
+
+      if (mounted) {
+        setState(() {
+          _quote = q;
+          _loyalty = loyalty;
+          // رصيدٌ صار لا يكفي بعد تغيّر السلّة يُطفئ الخيار بدل أن يبقى
+          // مؤشَّرًا على شيءٍ لا يقع.
+          if (loyalty == null || !loyalty.canRedeem) _useLoyalty = false;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = humanizeDbError(e));
     }
@@ -188,6 +212,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         deliveryAddressId: address.id,
         pickupSlot: slot.start,
         paymentMethod: _payment,
+        loyaltyPoints:
+            _useLoyalty ? (_loyalty?.redeemablePoints ?? 0) : 0,
         notes: _notesCtl.text,
       );
       cart.clear();
@@ -299,6 +325,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   onApply: _requote,
                 ),
                 const SizedBox(height: 16),
+                if (_loyalty != null && _loyalty!.balance > 0) ...[
+                  _LoyaltySection(
+                    state: _loyalty!,
+                    use: _useLoyalty,
+                    onChanged: (v) => setState(() => _useLoyalty = v),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 _PaymentSection(
                   value: _payment,
                   cardAvailable: _cardAvailable,
@@ -314,7 +348,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                _SummaryCard(cart: cart, quote: quote),
+                _SummaryCard(
+                  cart: cart,
+                  quote: quote,
+                  loyaltyRiyal: _useLoyalty && (_loyalty?.canRedeem ?? false)
+                      ? _loyalty!.redeemableRiyal
+                      : 0,
+                ),
               ],
             ),
     );
@@ -635,10 +675,18 @@ class _PaymentSection extends StatelessWidget {
 }
 
 class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({required this.cart, required this.quote});
+  const _SummaryCard({
+    required this.cart,
+    required this.quote,
+    this.loyaltyRiyal = 0,
+  });
 
   final Cart cart;
   final CheckoutQuote? quote;
+
+  /// خصمُ النقاط. **يُطرح من الإجماليّ المعروض**: عميلٌ يرى ٢١٥ ثم يُخصم منه
+  /// ١١٥ يظنّ أن شيئًا اختلّ — ولو كان لصالحه.
+  final double loyaltyRiyal;
 
   @override
   Widget build(BuildContext context) {
@@ -701,8 +749,11 @@ class _SummaryCard extends StatelessWidget {
               if (quote!.discount > 0) line('الخصم', -quote!.discount),
               if (quote!.vatAmount > 0)
                 line('ضريبة القيمة المضافة', quote!.vatAmount),
+              if (loyaltyRiyal > 0) line('خصم النقاط', -loyaltyRiyal),
               const SizedBox(height: 4),
-              line('الإجمالي', quote!.total, bold: true),
+              line('الإجمالي',
+                  (quote!.total - loyaltyRiyal).clamp(0, double.infinity),
+                  bold: true),
               if (!quote!.serviceable)
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
@@ -934,6 +985,58 @@ class _AddressDialogState extends State<_AddressDialog> {
           child: const Text('حفظ'),
         ),
       ],
+    );
+  }
+}
+
+/// نقاط الولاء عند إتمام الطلب.
+///
+/// **يُعرض ما يُصرف لا ما يُملَك**: رصيدٌ من ألف نقطةٍ وسقفٌ يسمح بمئةٍ منها
+/// يجب أن يُقال صراحةً — وإلّا ظنّ العميل أن نقاطه ضاعت.
+class _LoyaltySection extends StatelessWidget {
+  const _LoyaltySection({
+    required this.state,
+    required this.use,
+    required this.onChanged,
+  });
+
+  final LoyaltyState state;
+  final bool use;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Card(
+      color: use ? scheme.primaryContainer : null,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: use && state.canRedeem,
+              onChanged: state.canRedeem ? onChanged : null,
+              title: Text('ادفع بنقاطك (${state.balance} نقطة)',
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: Text(
+                state.canRedeem
+                    ? 'تُصرف ${state.redeemablePoints} نقطة = '
+                        '${state.redeemableRiyal.toStringAsFixed(2)} ر.س من هذه الفاتورة'
+                    : (state.reason ?? 'لا تُصرف نقاطٌ على هذه الفاتورة'),
+              ),
+            ),
+            if (state.canRedeem && state.redeemablePoints < state.balance)
+              Text(
+                'الباقي (${state.balance - state.redeemablePoints} نقطة) يبقى لك '
+                'لطلبٍ قادم — للصرف سقفٌ من الفاتورة.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

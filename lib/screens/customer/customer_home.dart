@@ -5,9 +5,12 @@ import '../../models/enums.dart';
 import '../../models/models.dart';
 import '../../services/cart.dart';
 import '../../services/customer_service.dart';
+import '../../services/feedback_service.dart';
 import '../../services/session_service.dart';
+import '../../services/supabase_service.dart';
 import '../../widgets/async_view.dart';
 import 'checkout_screen.dart';
+import 'loyalty_screen.dart';
 import 'my_orders_screen.dart';
 
 /// شاشة العميل: الكتالوج والسلّة.
@@ -27,6 +30,9 @@ class _CustomerHomeState extends State<CustomerHome> {
   late Future<List<({LaundryService service, double price})>> _future;
   String? _branchId;
 
+  /// الرصيد يُجلب مستقلًّا عن الكتالوج: تعذُّره لا يُخفي الخدمات.
+  LoyaltyState? _loyalty;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -44,6 +50,19 @@ class _CustomerHomeState extends State<CustomerHome> {
           ? Future.value(const [])
           : _service.catalog(laundryId: branch.laundryId, branchId: branch.id);
     });
+    _loadLoyalty(branch);
+  }
+
+  Future<void> _loadLoyalty(Branch? branch) async {
+    final userId = Db.currentUser?.id;
+    if (branch == null || userId == null) return;
+    try {
+      final l = await const FeedbackService()
+          .loyalty(userId: userId, laundryId: branch.laundryId);
+      if (mounted) setState(() => _loyalty = l);
+    } catch (_) {
+      if (mounted) setState(() => _loyalty = null);
+    }
   }
 
   @override
@@ -80,6 +99,17 @@ class _CustomerHomeState extends State<CustomerHome> {
           children: [
             if (session.branches.length > 1) ...[
               _BranchPicker(session: session),
+              const SizedBox(height: 16),
+            ],
+            if ((_loyalty?.balance ?? 0) > 0) ...[
+              _LoyaltyBanner(
+                balance: _loyalty!.balance,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => LoyaltyScreen(
+                    laundryId: session.activeBranch!.laundryId,
+                  ),
+                )),
+              ),
               const SizedBox(height: 16),
             ],
             Text('اختر خدماتك',
@@ -271,6 +301,33 @@ class _CartBar extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// شريطُ النقاط في أعلى الكتالوج.
+///
+/// **الرصيد يُعرض حيث يُنفَق لا في شاشةٍ منفصلةٍ وحدها**: من لا يعرف أن له
+/// نقاطًا لا يعود ليصرفها، ونظامُ ولاءٍ لا يُرى لا يُبقي أحدًا.
+class _LoyaltyBanner extends StatelessWidget {
+  const _LoyaltyBanner({required this.balance, required this.onTap});
+
+  final int balance;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      color: scheme.primaryContainer,
+      child: ListTile(
+        onTap: onTap,
+        leading: Icon(Icons.stars_rounded, color: scheme.primary),
+        title: Text('لديك $balance نقطة',
+            style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: const Text('تُصرف من فاتورتك عند إتمام الطلب.'),
+        trailing: const Icon(Icons.chevron_left),
       ),
     );
   }

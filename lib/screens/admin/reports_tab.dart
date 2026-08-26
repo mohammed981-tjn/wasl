@@ -37,8 +37,8 @@ enum _Range {
 
 class _ReportsTabState extends State<ReportsTab> {
   final _reports = const ReportsService();
-  late Future<
-      (ReportSummary, List<DailyPoint>, List<ServiceMixRow>, List<StageDuration>)> _future;
+  late Future<(ReportSummary, List<DailyPoint>, List<ServiceMixRow>,
+      List<StageDuration>, RatingSummary, List<RatingEntry>)> _future;
   String? _branchId;
   _Range _range = _Range.month;
 
@@ -64,7 +64,9 @@ class _ReportsTabState extends State<ReportsTab> {
           ReportSummary.empty,
           <DailyPoint>[],
           <ServiceMixRow>[],
-          <StageDuration>[]
+          <StageDuration>[],
+          RatingSummary.empty,
+          <RatingEntry>[],
         ));
         return;
       }
@@ -73,7 +75,16 @@ class _ReportsTabState extends State<ReportsTab> {
         final d = await _reports.daily(id, _from, _to);
         final m = await _reports.serviceMix(id, _from, _to);
         final st = await _reports.stageDurations(id, _from, _to);
-        return (s, d, m, st);
+        // التقييم تكميليّ: تعذّره لا يُخفي أرقام التشغيل.
+        var rs = RatingSummary.empty;
+        var recent = <RatingEntry>[];
+        try {
+          rs = await _reports.ratings(id, _from, _to);
+          recent = await _reports.recentRatings(id);
+        } catch (_) {
+          rs = RatingSummary.empty;
+        }
+        return (s, d, m, st, rs, recent);
       }();
     });
   }
@@ -99,12 +110,12 @@ class _ReportsTabState extends State<ReportsTab> {
     final money =
         NumberFormat.currency(locale: 'ar', symbol: 'ر.س', decimalDigits: 2);
 
-    return AsyncView<
-        (ReportSummary, List<DailyPoint>, List<ServiceMixRow>, List<StageDuration>)>(
+    return AsyncView<(ReportSummary, List<DailyPoint>, List<ServiceMixRow>,
+        List<StageDuration>, RatingSummary, List<RatingEntry>)>(
       future: _future,
       onRetry: _reload,
       builder: (context, data) {
-        final (summary, daily, mix, stages) = data;
+        final (summary, daily, mix, stages, ratings, recentRatings) = data;
         return ListView(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
           children: [
@@ -182,6 +193,8 @@ class _ReportsTabState extends State<ReportsTab> {
             ),
             const SizedBox(height: 20),
 
+            _RatingsCard(summary: ratings, recent: recentRatings),
+            const SizedBox(height: 20),
             _StagesCard(
               stages: stages,
               onExport: () => _export(
@@ -497,6 +510,177 @@ class _StagesCard extends StatelessWidget {
                     ],
                   ),
                 ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// التقييم كما يُقرأ لا كما يُجمَع.
+///
+/// **المتوسّط يكذب وحده**: أربعُ نجماتٍ ونصف قد تُخفي عشرَ شكاوى تحت مئةِ
+/// رضًا. فيُعرض التوزيع، ثم **الشكاوى أوّلًا** في النصوص — لأن ما يُصلَح إنما
+/// يُعرف من كلام عميلٍ غاضب لا من رقمٍ مريح.
+class _RatingsCard extends StatelessWidget {
+  const _RatingsCard({required this.summary, required this.recent});
+
+  final RatingSummary summary;
+  final List<RatingEntry> recent;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final max = summary.distribution.fold<int>(0, (m, v) => v > m ? v : m);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('رضا العملاء',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+
+            if (summary.count == 0)
+              Text('لا تقييم في هذه المدّة.',
+                  style: Theme.of(context).textTheme.bodySmall)
+            else ...[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(summary.avgStars.toStringAsFixed(2),
+                              style: TextStyle(
+                                  fontSize: 34,
+                                  fontWeight: FontWeight.w900,
+                                  color: scheme.primary)),
+                          const SizedBox(width: 4),
+                          Icon(Icons.star_rounded, color: scheme.tertiary),
+                        ],
+                      ),
+                      Text('${summary.count} تقييمًا',
+                          style: Theme.of(context).textTheme.bodySmall),
+                      if (summary.avgDelivery > 0)
+                        Text(
+                            'التوصيل ${summary.avgDelivery.toStringAsFixed(2)}',
+                            style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        for (var i = 5; i >= 1; i--)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                    width: 14,
+                                    child: Text('$i',
+                                        style: const TextStyle(fontSize: 12))),
+                                const Icon(Icons.star_rounded, size: 12),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: LinearProgressIndicator(
+                                    value: max == 0
+                                        ? 0
+                                        : summary.distribution[i - 1] / max,
+                                    minHeight: 8,
+                                    backgroundColor:
+                                        scheme.surfaceContainerHighest,
+                                    color: i <= 3 ? scheme.error : scheme.primary,
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 28,
+                                  child: Text('${summary.distribution[i - 1]}',
+                                      textAlign: TextAlign.end,
+                                      style: const TextStyle(fontSize: 12)),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              if (summary.lowCount > 0) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: scheme.errorContainer,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${summary.lowCount} تقييمًا دون الحدّ — تُقرأ لا تُجمَع.',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ],
+
+            if (recent.isNotEmpty) ...[
+              const Divider(height: 28),
+              const Text('آخر ما كُتب',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              for (final r in recent.take(8))
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 64,
+                        child: Row(
+                          children: [
+                            Text('${r.stars}',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    color: r.stars <= 3
+                                        ? scheme.error
+                                        : scheme.primary)),
+                            Icon(Icons.star_rounded,
+                                size: 14,
+                                color: r.stars <= 3
+                                    ? scheme.error
+                                    : scheme.tertiary),
+                            const SizedBox(width: 4),
+                            Text('#${r.orderNumber}',
+                                style: const TextStyle(fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (r.tags.isNotEmpty)
+                              Text(r.tags.join('، '),
+                                  style: const TextStyle(
+                                      fontSize: 12, fontWeight: FontWeight.w600)),
+                            if (r.comment != null)
+                              Text(r.comment!,
+                                  style: Theme.of(context).textTheme.bodySmall),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ],
         ),
       ),

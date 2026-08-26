@@ -174,3 +174,126 @@ class ReportsService {
         .toList();
   }
 }
+
+/// ملخّص التقييم.
+class RatingSummary {
+  const RatingSummary({
+    required this.count,
+    required this.avgStars,
+    required this.avgDelivery,
+    required this.lowCount,
+    required this.distribution,
+  });
+
+  static const empty = RatingSummary(
+      count: 0, avgStars: 0, avgDelivery: 0, lowCount: 0,
+      distribution: [0, 0, 0, 0, 0]);
+
+  final int count;
+  final double avgStars;
+  final double avgDelivery;
+
+  /// عددُ التقييمات دون حدّ الشكوى. **يُعرض بجانب المتوسّط لا تحته**: أربعُ
+  /// نجماتٍ ونصف قد تُخفي عشرَ شكاوى تحت مئةِ رضًا.
+  final int lowCount;
+
+  /// من نجمةٍ إلى خمس.
+  final List<int> distribution;
+
+  factory RatingSummary.fromMap(Map<String, dynamic> m) => RatingSummary(
+        count: _asInt(m['ratings_count']),
+        avgStars: _asNum(m['avg_stars']),
+        avgDelivery: _asNum(m['avg_delivery']),
+        lowCount: _asInt(m['low_count']),
+        distribution: [
+          _asInt(m['stars_1']),
+          _asInt(m['stars_2']),
+          _asInt(m['stars_3']),
+          _asInt(m['stars_4']),
+          _asInt(m['stars_5']),
+        ],
+      );
+}
+
+/// تقييمٌ مفرد كما يُعرض للإدارة.
+class RatingEntry {
+  const RatingEntry({
+    required this.orderNumber,
+    required this.stars,
+    required this.createdAt,
+    this.deliveryStars,
+    this.tags = const [],
+    this.comment,
+  });
+
+  final int orderNumber;
+  final int stars;
+  final int? deliveryStars;
+  final List<String> tags;
+  final String? comment;
+  final DateTime createdAt;
+
+  factory RatingEntry.fromMap(Map<String, dynamic> m) {
+    final order = m['orders'];
+    return RatingEntry(
+      orderNumber: order is Map ? _asInt(order['order_number']) : 0,
+      stars: _asInt(m['stars']),
+      deliveryStars:
+          m['delivery_stars'] == null ? null : _asInt(m['delivery_stars']),
+      tags: (m['tags'] as List?)?.cast<String>() ?? const [],
+      comment: m['comment'] as String?,
+      createdAt:
+          DateTime.tryParse('${m['created_at']}')?.toLocal() ?? DateTime.now(),
+    );
+  }
+}
+
+int _asInt(dynamic v) => switch (v) {
+      null => 0,
+      int n => n,
+      num n => n.toInt(),
+      String s => int.tryParse(s) ?? 0,
+      _ => 0,
+    };
+
+double _asNum(dynamic v) => switch (v) {
+      null => 0,
+      num n => n.toDouble(),
+      String s => double.tryParse(s) ?? 0,
+      _ => 0,
+    };
+
+extension RatingsReports on ReportsService {
+  Future<RatingSummary> ratings(
+      String branchId, DateTime from, DateTime to) async {
+    final rows = await Db.client.rpc('rating_summary', params: {
+      'p_branch': branchId,
+      'p_from': from.toIso8601String().split('T').first,
+      'p_to': to.toIso8601String().split('T').first,
+    });
+    final list = rows as List;
+    return list.isEmpty
+        ? RatingSummary.empty
+        : RatingSummary.fromMap(list.first as Map<String, dynamic>);
+  }
+
+  /// آخرُ التقييمات المكتوبة. **الشكاوى أوّلًا**: المتوسّط يُقرأ في ثانية،
+  /// وما يُصلَح إنما يُعرف من نصٍّ كتبه عميلٌ غاضب.
+  Future<List<RatingEntry>> recentRatings(String branchId,
+      {int limit = 20}) async {
+    final rows = await Db.client
+        .from('order_ratings')
+        .select('stars, delivery_stars, tags, comment, created_at, '
+            'orders!order_ratings_order_id_fkey(order_number)')
+        .eq('branch_id', branchId)
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return (rows as List)
+        .map((e) => RatingEntry.fromMap(e as Map<String, dynamic>))
+        .toList()
+      ..sort((a, b) {
+        if ((a.stars <= 3) != (b.stars <= 3)) return a.stars <= 3 ? -1 : 1;
+        return b.createdAt.compareTo(a.createdAt);
+      });
+  }
+}

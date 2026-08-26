@@ -1360,3 +1360,75 @@ class DeliveryZone {
     );
   }
 }
+
+/// تقييمُ طلبٍ بعد تسليمه.
+class OrderRating {
+  const OrderRating({
+    required this.orderId,
+    required this.stars,
+    this.deliveryStars,
+    this.tags = const [],
+    this.comment,
+    this.createdAt,
+  });
+
+  final String orderId;
+  final int stars;
+  final int? deliveryStars;
+  final List<String> tags;
+  final String? comment;
+  final DateTime? createdAt;
+
+  factory OrderRating.fromMap(Map<String, dynamic> m) => OrderRating(
+        orderId: m['order_id'] as String,
+        stars: _int(m['stars']),
+        deliveryStars:
+            m['delivery_stars'] == null ? null : _int(m['delivery_stars']),
+        tags: (m['tags'] as List?)?.cast<String>() ?? const [],
+        comment: m['comment'] as String?,
+        createdAt: _date(m['created_at']),
+      );
+}
+
+/// رصيدُ نقاط الولاء وما تساويه.
+class LoyaltyState {
+  const LoyaltyState({
+    required this.balance,
+    this.redeemablePoints = 0,
+    this.redeemableRiyal = 0,
+    this.reason,
+  });
+
+  final int balance;
+
+  /// ما يُسمح بصرفه على هذه الفاتورة — لا كلُّ الرصيد: للسقف كلمة.
+  final int redeemablePoints;
+  final double redeemableRiyal;
+  final String? reason;
+
+  bool get canRedeem => redeemablePoints > 0 && redeemableRiyal > 0;
+}
+
+/// حركةُ نقاط.
+class LoyaltyTxn {
+  const LoyaltyTxn({
+    required this.points,
+    required this.kind,
+    required this.createdAt,
+    this.note,
+  });
+
+  final int points;
+  final String kind;
+  final DateTime createdAt;
+  final String? note;
+
+  bool get isEarn => points > 0;
+
+  factory LoyaltyTxn.fromMap(Map<String, dynamic> m) => LoyaltyTxn(
+        points: _int(m['points']),
+        kind: m['kind'] as String? ?? 'earn',
+        createdAt: _date(m['created_at']) ?? DateTime.now(),
+        note: m['note'] as String?,
+      );
+}

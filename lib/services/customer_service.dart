@@ -202,6 +202,7 @@ class CustomerService {
     DateTime? deliverySlot,
     String? couponCode,
     PaymentMethod paymentMethod = PaymentMethod.cashOnDelivery,
+    int loyaltyPoints = 0,
     String? notes,
   }) async {
     final orderRow = await Db.client
@@ -254,6 +255,15 @@ class CustomerService {
           .toIso8601String(),
       if (notes != null && notes.trim().isNotEmpty) 'customer_notes': notes.trim(),
     }).eq('id', orderId);
+
+    // صرفُ النقاط قبل الإرسال: بعده تُجمَّد المبالغ فلا يُخصم منها شيء.
+    // وقيمتُها تُحسب في القاعدة — ما يُرسل هنا عددُ نقاطٍ لا مبلغ.
+    if (loyaltyPoints > 0) {
+      await Db.client.rpc('redeem_loyalty_on_order', params: {
+        'p_order': orderId,
+        'p_points': loyaltyPoints,
+      });
+    }
 
     // استهلاك الكوبون يُسجَّل بعد ثبوت الطلب لا قبله: القيد الفريد يحسم
     // السباق، وتسجيلُه على طلبٍ لم يُرسل يستهلكه بلا مقابل.

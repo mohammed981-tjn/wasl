@@ -4,10 +4,12 @@ import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../models/enums.dart';
 import '../../models/models.dart';
+import '../../services/feedback_service.dart';
 import '../../services/orders_service.dart';
 import '../../services/payments_service.dart';
 import '../../widgets/async_view.dart';
 import 'pay_card.dart';
+import 'rating_card.dart';
 
 /// تتبّع الطلب.
 ///
@@ -36,7 +38,8 @@ class OrderTrackingScreen extends StatefulWidget {
 
 class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   final _orders = const OrdersService();
-  late Future<(LaundryOrder, List<OrderEvent>, List<Payment>)> _future;
+  late Future<(LaundryOrder, List<OrderEvent>, List<Payment>, OrderRating?)>
+      _future;
 
   /// يُفتح الدفع تلقائيًّا **مرّةً**: فتحُه عند كل إعادة بناءٍ يفتح نوافذ بلا
   /// عدد على من عاد من الصفحة ولم يدفع.
@@ -73,7 +76,15 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         } catch (_) {
           p = const [];
         }
-        return (o, e, p);
+        OrderRating? rating;
+        if (o.status == OrderStatus.delivered) {
+          try {
+            rating = await const FeedbackService().ratingOf(widget.orderId);
+          } catch (_) {
+            rating = null;
+          }
+        }
+        return (o, e, p, rating);
       }();
     });
   }
@@ -87,11 +98,12 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           IconButton(onPressed: _reload, icon: const Icon(Icons.refresh)),
         ],
       ),
-      body: AsyncView<(LaundryOrder, List<OrderEvent>, List<Payment>)>(
+      body: AsyncView<
+          (LaundryOrder, List<OrderEvent>, List<Payment>, OrderRating?)>(
         future: _future,
         onRetry: _reload,
         builder: (context, data) {
-          final (order, events, payments) = data;
+          final (order, events, payments, rating) = data;
           final reached = {for (final e in events) e.toStatus};
           final df = DateFormat('MM-dd HH:mm');
 
@@ -103,6 +115,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 const SizedBox(height: 20),
               ],
               _Head(order: order),
+              // التقييم أوّلًا بعد التسليم: هو ما جاء لأجله من رسالة «سُلّم».
+              if (order.status == OrderStatus.delivered) ...[
+                const SizedBox(height: 16),
+                RatingCard(
+                  orderId: order.id,
+                  existing: rating,
+                  hasDriver: order.deliveryDriverId != null,
+                  onSaved: _reload,
+                ),
+              ],
               if (PaymentsService.owesPayment(order)) ...[
                 const SizedBox(height: 16),
                 PayCard(
