@@ -53,6 +53,24 @@ $$;
 -- Supabase يمنح أدوار الواجهة حقّ استدعاء auth.uid()؛ ومحاكيه يجب أن يفعل
 -- المثل، وإلا فشل كل اختبار بـ«permission denied for schema auth» قبل أن يصل
 -- إلى سياسةٍ واحدة.
+-- ═══════════════════════════════════════════════════════════════════════════
+-- الصلاحيات الافتراضية كما يضبطها Supabase
+-- ═══════════════════════════════════════════════════════════════════════════
+-- **هذا السطر هو ما جعل اختبارًا يمرّ محلّيًّا ويفشل على المشروع الحيّ.**
+--
+-- Supabase يمنح `anon` و`authenticated` كلَّ شيءٍ على كل جدولٍ في `public`
+-- افتراضًا، ويتّكل على RLS وحدها في المنع. ومحاكاةٌ لا تفعل ذلك تجعل كل فحص
+-- صلاحيّاتٍ **يمرّ بلا معنى**: لا صلاحية أصلًا فلا شيء يُكتشف.
+--
+-- فتُحاكى هنا، ثم تُشدَّد المهاجرات ما يجب تشديده — ويُرى أثرُه في الاختبار.
+grant usage on schema public to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant all on functions to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant all on sequences to anon, authenticated, service_role;
+
 grant usage on schema auth to anon, authenticated, service_role;
 grant execute on all functions in schema auth to anon, authenticated, service_role;
 grant select on auth.users to authenticated, service_role;

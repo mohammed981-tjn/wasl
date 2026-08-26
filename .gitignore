@@ -42,3 +42,21 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# ─────────────────────────────────────────────────────────────────────────
+# أسرارٌ لا تدخل المستودع
+# ─────────────────────────────────────────────────────────────────────────
+# مفتاحُ توقيع المتجر ومساره وكلماته. تسريبُه يعني أن غيرك يستطيع نشر
+# تحديثٍ باسم تطبيقك.
+android/key.properties
+**/*.jks
+**/*.keystore
+
+# ملفّات خدمات المزوّدين (Firebase وغيرها) — تحمل معرّفاتٍ ومفاتيح.
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+
+# بيئةُ التشغيل المحلّيّة
+.env
+.env.*
+!.env.example

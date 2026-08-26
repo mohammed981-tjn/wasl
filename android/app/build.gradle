@@ -22,8 +22,29 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// مفتاح التوقيع
+// ─────────────────────────────────────────────────────────────────────────
+// **لا يُكتب في المستودع ولا يُرفع إليه.** يُقرأ من `android/key.properties`
+// وهو مستثنًى في `.gitignore`. ومن يفقد هذا المفتاح لا يستطيع تحديث تطبيقه
+// على المتجر أبدًا — يُنشئ تطبيقًا جديدًا ويبدأ من صفر مستخدمين.
+//
+// وغيابُه لا يُفشل البناء: تُبنى نسخة release بمفتاح التطوير **مع تحذير**،
+// كي يعمل البناء المحلّيّ والاختبار. أمّا ما يُرفع للمتجر فلا بدّ له منه.
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+def hasReleaseKey = keystorePropertiesFile.exists()
+if (hasReleaseKey) {
+    keystorePropertiesFile.withReader('UTF-8') { reader ->
+        keystoreProperties.load(reader)
+    }
+} else {
+    logger.warn("⚠ android/key.properties غير موجود — ستُوقَّع نسخة release " +
+                "بمفتاح التطوير، وهي **لا تصلح للنشر على المتجر**.")
+}
+
 android {
-    namespace "com.example.foodly_ui"
+    namespace "sa.wasl.app"
     compileSdk flutter.compileSdkVersion
     ndkVersion flutter.ndkVersion
 
@@ -41,16 +62,73 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.example.foodly_ui"
-        minSdk flutter.minSdkVersion
+        applicationId "sa.wasl.app"
+        minSdk 23
         targetSdk flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+        // اللغتان وحدهما: كل لغةٍ أخرى في مكتبات Material حِملٌ لا يُقرأ.
+        resConfigs "ar", "en"
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // النكهات الأربع
+    // ─────────────────────────────────────────────────────────────────────
+    // **أربع حزمٍ بأربعة معرّفات لا حزمةٌ تتبدّل**: السائق والعميل قد يكونان
+    // على جهازٍ واحد (صاحبُ المغسلة يجرّب تطبيق عميله)، ومعرّفٌ واحد يعني أن
+    // تثبيت إحداهما يمحو الأخرى.
+    //
+    // والنكهة تُمرَّر إلى Dart كذلك: `--dart-define=WASL_FLAVOR=driver`.
+    // فـGradle يفصل الحزم، و`pinnedFlavor` يفصل الشاشات.
+    flavorDimensions "app"
+    productFlavors {
+        customer {
+            dimension "app"
+            resValue "string", "app_name", "وصل"
+        }
+        driver {
+            dimension "app"
+            applicationIdSuffix ".driver"
+            resValue "string", "app_name", "وصل • السائق"
+        }
+        laundry {
+            dimension "app"
+            applicationIdSuffix ".laundry"
+            resValue "string", "app_name", "وصل • المغسلة"
+        }
+        admin {
+            dimension "app"
+            applicationIdSuffix ".admin"
+            resValue "string", "app_name", "وصل • الإدارة"
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseKey) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+            }
+        }
     }
 
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            // على سطرٍ واحد: السطرُ الجديد في Groovy ينهي الجملة، فتصير
+            // `? :` في سطرٍ تالٍ خطأً في التحليل يُفشل البناء كلَّه.
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
+
+            // التصغير والتقليم: حزمةٌ أصغر تُنزَّل على شبكةٍ بطيئة، وأسماءٌ
+            // مبهمة ترفع كلفة فكّ الحزمة على من يحاول.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                          'proguard-rules.pro'
+        }
+        debug {
+            applicationIdSuffix ".dev"
         }
     }
 }

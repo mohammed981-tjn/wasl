@@ -1,6 +1,48 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         الأذونات
+         ═══════════════════════════════════════════════════════════════════
+         الكاميرا والموقع تأتيان من بيانات الإضافات (mobile_scanner و
+         geolocator) وتُدمج تلقائيًّا. وتُذكر هنا **صراحةً** كي تُقرأ في
+         مراجعةٍ واحدة: من يقرأ هذا الملفّ يجب أن يعرف ما يطلبه التطبيق.
+
+         ولا نطلب الموقع في الخلفية (ACCESS_BACKGROUND_LOCATION): نبضُ موقع
+         السائق يقع والتطبيق مفتوح، وطلبُ إذن الخلفية يُراجَع في المتجر
+         مراجعةً خاصّة ويُرفض إن لم يكن ضروريًّا. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- الكاميرا ليست شرطًا للتشغيل: تطبيق العميل لا يمسح شيئًا، ومن غير
+         هذا السطر يختفي التطبيق من متجر الأجهزة التي لا كاميرا فيها. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         ما يُنادى من تطبيقاتٍ أخرى
+         ═══════════════════════════════════════════════════════════════════
+         **بلا هذا القسم تفشل أزرار الاتصال والملاحة صامتةً على أندرويد ١١
+         فما فوق**: النظام يُخفي التطبيقات الأخرى عن تطبيقنا، فيعيد
+         `canLaunchUrl` كذبًا ولا يُرفع أيّ خطأ — يضغط السائق «اتّصال» فلا
+         يحدث شيء. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="geo"/>
+        </intent>
+    </queries>
+
     <application
-        android:label="WASL"
+        android:label="@string/app_name"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

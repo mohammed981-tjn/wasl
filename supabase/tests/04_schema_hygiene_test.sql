@@ -161,4 +161,96 @@ begin
   raise notice '✓ الإحداثيّات: lat/lng عمودان مشتقّان يُقرآن أرقامًا';
 end $$;
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- فحوصُ ما قبل النشر
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ١٠) كل عرضٍ بصلاحية مناديه لا بصلاحية منشئه.
+-- **العرضُ `security definer` يتجاوز RLS الناظر إليه**: يقرأ بصلاحية من
+-- أنشأه (وهو مالك الجدول)، فيصير نافذةً مفتوحةً على كل الصفوف. وهو الافتراض
+-- في Postgres القديم، ولا يظهر أثره إلا حين ينظر مستخدمٌ فيرى ما ليس له.
+do $$
+declare n int; names text;
+begin
+  select count(*), string_agg(c.relname, '، ') into n, names
+  from pg_class c
+  join pg_namespace ns on ns.oid = c.relnamespace
+  where ns.nspname = 'public' and c.relkind = 'v'
+    and not exists (
+      select 1 from unnest(coalesce(c.reloptions, '{}')) opt
+      where opt = 'security_invoker=true' or opt = 'security_invoker=on');
+  if n <> 0 then
+    raise exception '✗ ثغرة: % عرضًا يقرأ بصلاحية منشئه لا مناديه: %', n, names;
+  end if;
+  raise notice '✓ الأمان: كل عرضٍ بصلاحية مناديه';
+end $$;
+
+-- ١١) الزائر يقرأ ولا يكتب.
+-- `anon` هو من يفتح التطبيق ولم يسجّل بعد. وأيُّ منحِ كتابةٍ له يعني أن من
+-- يملك المفتاح المنشور — وهو في كل حزمة — يكتب في القاعدة بلا حساب.
+do $$
+declare n int; names text;
+begin
+  select count(*), string_agg(format('%s:%s', table_name, privilege_type), '، ')
+    into n, names
+  from information_schema.role_table_grants
+  where grantee = 'anon' and table_schema = 'public'
+    and privilege_type in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE');
+  if n <> 0 then
+    raise exception '✗ ثغرة: الزائر يكتب في % موضعًا: %', n, names;
+  end if;
+  raise notice '✓ الأمان: الزائر يقرأ ولا يكتب';
+end $$;
+
+-- ١٢) لا سرَّ مخزَّنٌ نصًّا صريحًا.
+-- عمودٌ اسمه `password` أو `secret` أو `api_key` في جدولٍ يقرؤه التطبيق هو
+-- تسريبٌ مؤجَّل. والمسموح: ما ينتهي بـ`_hash` (مُجزَّأ لا يُفكّ)، والمفتاح
+-- **المنشور** (`publishable_key`) وهو غير سرّيّ بتعريفه.
+do $$
+declare n int; names text;
+begin
+  select count(*), string_agg(format('%s.%s', c.relname, a.attname), '، ')
+    into n, names
+  from pg_attribute a
+  join pg_class c on c.oid = a.attrelid
+  join pg_namespace ns on ns.oid = c.relnamespace and ns.nspname = 'public'
+  where c.relkind = 'r' and a.attnum > 0 and not a.attisdropped
+    and (a.attname ~* '(password|secret|api_key|private_key|token)')
+    and a.attname !~* '_hash$'
+    and a.attname <> 'publishable_key'
+    -- رمز الجهاز للإشعارات ليس سرًّا يفتح شيئًا: يُرسَل إليه ولا يُقرأ منه.
+    and not (c.relname = 'device_tokens' and a.attname = 'token');
+  if n <> 0 then
+    raise exception '✗ ثغرة: % عمودًا يبدو سرًّا نصًّا صريحًا: %', n, names;
+  end if;
+  raise notice '✓ الأمان: لا سرَّ نصًّا صريحًا في جدول';
+end $$;
+
+-- ١٣) طرقُ الخادم مغلقةٌ على الحزم.
+-- هذه دوالٌّ تُنادى بمفتاح `service_role` من دوالّ Edge. وكشفُ إحداها
+-- لـ`authenticated` يعني أن أيّ مستخدمٍ مسجَّل يطبّق نتيجة دفعٍ على طلبه.
+do $$
+declare fn text; n int := 0; names text := '';
+begin
+  foreach fn in array array[
+    'apply_payment_result', 'open_payment_session', 'record_webhook_event'
+  ] loop
+    if exists (
+      select 1 from pg_proc p
+      join pg_namespace ns on ns.oid = p.pronamespace and ns.nspname = 'public'
+      where p.proname = fn
+        and (has_function_privilege('anon', p.oid, 'execute')
+          or has_function_privilege('authenticated', p.oid, 'execute'))
+    ) then
+      n := n + 1;
+      names := names || fn || '، ';
+    end if;
+  end loop;
+  if n <> 0 then
+    raise exception '✗ ثغرة: % من طرق الخادم مكشوفةٌ على الحزم: %', n, names;
+  end if;
+  raise notice '✓ الأمان: طرقُ الخادم مغلقةٌ على الحزم';
+end $$;
+
+
 rollback;

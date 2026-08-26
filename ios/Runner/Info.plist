@@ -13,7 +13,36 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>foodly_ui</string>
+	<string>wasl</string>
+	<!-- ═══════════════════════════════════════════════════════════════
+	     أوصاف الأذونات — **بلا هذه الأسطر ينهار التطبيق**
+	     ═══════════════════════════════════════════════════════════════
+	     iOS لا يرفض الطلب بل يُنهي العملية فورًا حين يُطلب إذنٌ بلا وصف.
+	     ولا يظهر ذلك في التطوير إن لم تُفتح الشاشة التي تطلبه — يظهر عند
+	     أوّل سائقٍ يضغط «استلمت».
+	     والنصّ يُقرأ على المستخدم، فيُكتب بلغته وبسببٍ يُقنع. -->
+	<key>NSCameraUsageDescription</key>
+	<string>تُستعمل الكاميرا لمسح ملصق الطلب داخل المغسلة.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>يُستعمل موقعك لتحديد عنوان الاستلام وحساب رسم التوصيل، ولإثبات التسليم عند الباب.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>لإرفاق صورةٍ لقطعةٍ أو بقعةٍ مع طلبك.</string>
+
+	<!-- الاتصال والملاحة: بلا هذه المخططات يعيد `canLaunchUrl` كذبًا
+	     فيفشل زرُّ السائق صامتًا. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
+		<string>https</string>
+		<string>comgooglemaps</string>
+	</array>
+
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>ar</string>
+		<string>en</string>
+	</array>
+
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

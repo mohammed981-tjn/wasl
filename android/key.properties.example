@@ -1,0 +1,15 @@
+# انسخ هذا الملفّ إلى `android/key.properties` واملأه.
+# **ولا تُضِف الأصل إلى git** — هو مستثنًى في .gitignore، وإضافتُه تسرّب
+# مفتاح توقيع تطبيقك على المتجر.
+#
+# لإنشاء المفتاح (مرّةً واحدةً في العمر، ويُحفظ نسخةً احتياطية):
+#
+#   keytool -genkey -v -keystore ~/wasl-release.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias wasl
+#
+# ومن يفقده لا يستطيع تحديث تطبيقه على المتجر أبدًا.
+
+storeFile=/absolute/path/to/wasl-release.jks
+storePassword=
+keyAlias=wasl
+keyPassword=
