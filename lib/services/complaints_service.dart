@@ -220,6 +220,17 @@ class ComplaintsService {
         : ComplaintSummary.fromMap(rows.first as Map<String, dynamic>);
   }
 
+  /// شكاوى حُلّت ولم يبلغ أصحابَها ردُّها.
+  ///
+  /// **رقمٌ يجب أن يُرى.** هذه لن تُغلق تلقائيًّا أبدًا — بحكم الحارس في
+  /// القاعدة — وستقعد في الطابور بلا سببٍ ظاهر. فيُعرض السبب صريحًا بدل أن
+  /// يُكتشف بعد شهر.
+  Future<int> unnotifiedCount(String laundryId) async {
+    final rows = await Db.client
+        .rpc('complaints_unnotified', params: {'p_laundry': laundryId}) as List;
+    return rows.length;
+  }
+
   /// إنذاراتُ سائق — يقرؤها هو والإدارة.
   ///
   /// **العدُّ هنا لا في القاعدة**: دالّةُ العدّ مقفلةٌ على الخادم عمدًا كي لا

@@ -10,6 +10,7 @@ import '../../services/location_service.dart';
 import '../../services/session_service.dart';
 import '../../services/supabase_service.dart';
 import '../../widgets/async_view.dart';
+import '../customer/notifications_screen.dart';
 import 'job_screen.dart';
 import 'my_record_screen.dart';
 
@@ -131,6 +132,7 @@ class _DriverHomeState extends State<DriverHome> {
       appBar: AppBar(
         title: const Text('وصل • السائق'),
         actions: [
+          const NotificationsBell(),
           IconButton(onPressed: _reload, icon: const Icon(Icons.refresh)),
           IconButton(
             tooltip: 'سجلّي',

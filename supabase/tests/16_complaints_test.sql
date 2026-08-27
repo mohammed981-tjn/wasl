@@ -601,6 +601,16 @@ select 'ccc00000-0000-0000-0000-0000000000ee',
        'شكوى حُلّت للتوّ','resolved', now() - interval '1 hour'
 from complaint_types where code = 'late_delivery';
 
+-- **وتُصفَّ رسالةُ الحلّ يدويًّا لهاتين**: أُدرِجتا `resolved` مباشرةً في
+-- سياق الخادم، والمحفّزُ لا يرى انتقالًا فلا يُصفّ شيئًا. وبلا الرسالة
+-- يمنعهما حارسُ «لا إغلاق على من لم يُسأل» — وهو ما يجب أن يفعل.
+insert into notifications (user_id, complaint_id, channel, body, created_at)
+values
+  ('a0000000-0000-0000-0000-000000000001','ccc00000-0000-0000-0000-00000000000f',
+   'in_app','ردٌّ على شكواك', now() - interval '5 days'),
+  ('a0000000-0000-0000-0000-000000000001','ccc00000-0000-0000-0000-0000000000ee',
+   'in_app','ردٌّ على شكواك', now() - interval '1 hour');
+
 select assert_eq(close_stale_complaints(), 1,
   'الكنس: يُغلق ما تجاوز المهلة وحده — لا ما حُلّ للتوّ');
 
@@ -716,5 +726,233 @@ $$, 'السجلّ: ولا تُمحى');
 select expect_no_rows($$
   delete from complaints where id = 'ccc00000-0000-0000-0000-0000000000dd'
 $$, 'السجلّ: لا تُحذف شكوى');
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- الإشعارات — والصمتُ لا يُفسَّر رضًا إلا إن سُئل صاحبُه
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══ ٢٢) القوالبُ تُبذر مع المغسلة ══════════════════════════════════════
+select auth.logout();
+set local role postgres;
+select assert_eq(
+  (select count(*)::int > 0 from complaint_templates
+   where laundry_id = '11111111-1111-1111-1111-111111111111'
+     and event = 'resolved'),
+  true, 'البذرة: قالبُ «حُلّت» موجودٌ من أوّل يوم — وبلا قالبٍ لا يُغلق شيء');
+
+-- ═══ ٢٣) والحلُّ يُصفّ رسالةً تطلب جوابًا ════════════════════════════════
+insert into orders (id, laundry_id, branch_id, customer_id, status,
+                    subtotal, delivery_fee, total, delivered_at)
+values ('0dd00000-0000-0000-0000-0000000000e1','11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222','a0000000-0000-0000-0000-000000000001',
+        'delivered', 50, 10, 60, now());
+
+set local role authenticated;
+select auth.login_as('a0000000-0000-0000-0000-000000000001');
+insert into complaints (id, laundry_id, order_id, type_id, submitted_by,
+                        submitted_by_role, description)
+select 'ccc00000-0000-0000-0000-0000000000b1',
+       '11111111-1111-1111-1111-111111111111',
+       '0dd00000-0000-0000-0000-0000000000e1', id,
+       'a0000000-0000-0000-0000-000000000001','customer','كيٌّ رديء في الثوب'
+from complaint_types where code = 'poor_ironing';
+
+-- والفتحُ يُخطر خدمةَ العملاء لا العميل: طابورٌ لا يُرى لا يُعمل فيه.
+select auth.logout();
+set local role postgres;
+select assert_eq(
+  (select count(*)::int from notifications n
+   join complaints c on c.id = n.complaint_id
+   where c.order_id = '0dd00000-0000-0000-0000-0000000000e1'
+     and n.user_id = 'a0000000-0000-0000-0000-000000000005'),
+  1, 'الفتح: خدمةُ العملاء تُخطَر بالشكوى الجديدة');
+
+set local role authenticated;
+select auth.login_as('a0000000-0000-0000-0000-000000000005');
+select resolve_complaint('ccc00000-0000-0000-0000-0000000000b1',
+                         'أعدنا كيَّ الثوب، ونعتذر عن التقصير');
+
+select auth.logout();
+set local role postgres;
+
+do $$
+declare n record;
+begin
+  select * into n from notifications
+  where complaint_id = 'ccc00000-0000-0000-0000-0000000000b1'
+    and user_id = 'a0000000-0000-0000-0000-000000000001'
+    and title like '%ردٌّ على شكواك%';
+
+  if n is null then
+    raise exception '✗ الإشعار: حُلّت الشكوى ولم يُصفَّ لصاحبها شيء';
+  end if;
+  raise notice '✓ الإشعار: الحلُّ يُصفّ رسالةً لصاحب الشكوى';
+
+  -- **والرسالةُ تحمل ثلاثة**: ردَّ الإدارة، وطلبَ الجواب، ونهايةَ المهلة.
+  -- وبلا واحدةٍ منها يصير الإغلاقُ بالصمت إغلاقًا بالجهل.
+  if n.body not like '%أعدنا كيَّ الثوب%' then
+    raise exception '✗ الإشعار: الرسالةُ لا تحمل ردَّ الإدارة';
+  end if;
+  if n.body not like '%هل حُلّت مشكلتك فعلًا؟%' then
+    raise exception '✗ الإشعار: الرسالةُ لا تطلب جوابًا — فبأيّ حقٍّ يُعدّ الصمتُ رضًا؟';
+  end if;
+  if n.body not like '%3 أيّام%' then
+    raise exception '✗ الإشعار: لا تُذكر نهايةُ المهلة — والمفاجأةُ ليست عدلًا';
+  end if;
+  raise notice '✓ الإشعار: تحمل الردَّ وطلبَ الجواب ونهايةَ المهلة';
+
+  if n.body like '%{%' then
+    raise exception '✗ القالب: متغيّرٌ لم يُملأ ظهر للمستخدم: %', n.body;
+  end if;
+  raise notice '✓ القالب: لا متغيّرَ خامٌ يظهر للمستخدم';
+end $$;
+
+-- ═══ ٢٤) والكنسُ لا يُغلق على من لم يُسأل ═══════════════════════════════
+-- **جوهرُ هذه المهاجرة.** شكوى حُلّت ولم يُصفَّ لصاحبها إشعار: تبقى ظاهرةً
+-- في الطابور ولا تُغلق — وبقاءُ صفٍّ في لوحةٍ أهونُ من إغلاقٍ على من لم يعلم.
+insert into complaints (id, laundry_id, branch_id, order_id, type_id, submitted_by,
+                        submitted_by_role, description, status, resolved_at)
+select 'ccc00000-0000-0000-0000-0000000000aa',
+       '11111111-1111-1111-1111-111111111111',
+       '22222222-2222-2222-2222-222222222222',
+       '0dd00000-0000-0000-0000-0000000000e1', id,
+       'a0000000-0000-0000-0000-000000000001','customer',
+       'شكوى حُلّت ولم يُخطَر صاحبُها','resolved', now() - interval '10 days'
+from complaint_types where code = 'wrong_item';
+
+-- تُمحى رسائلُها كي تُحاكى حالةُ «لم يُسأل» بدقّة.
+delete from notifications where complaint_id = 'ccc00000-0000-0000-0000-0000000000aa';
+
+select assert_eq(close_stale_complaints(), 0,
+  'العدل: شكوى لم يبلغ صاحبَها ردُّها لا تُغلق بصمته');
+
+select assert_eq(
+  (select status from complaints where id = 'ccc00000-0000-0000-0000-0000000000aa'),
+  'resolved'::complaint_status, 'العدل: وتبقى ظاهرةً في الطابور');
+
+-- والسببُ يُعرض لا يُخبَّأ: صفٌّ عالقٌ بلا سببٍ ظاهر يُكتشف بعد شهر.
+set local role authenticated;
+select auth.login_as('a0000000-0000-0000-0000-000000000005');
+select assert_eq(
+  (select count(*)::int from
+     complaints_unnotified('11111111-1111-1111-1111-111111111111')
+   where complaint_id = 'ccc00000-0000-0000-0000-0000000000aa'),
+  1, 'الشفافيّة: «حُلّت ولم يبلغ صاحبَها» رقمٌ يُعرض للإدارة');
+
+-- ═══ ٢٥) ومن سُئل ثم سكت تُغلق شكواه ════════════════════════════════════
+select auth.logout();
+set local role postgres;
+-- يُعاد تاريخُ الشكوى المُخطَرة إلى ما قبل المهلة.
+update complaints set resolved_at = now() - interval '10 days'
+where id = 'ccc00000-0000-0000-0000-0000000000b1';
+update notifications set created_at = now() - interval '10 days'
+where complaint_id = 'ccc00000-0000-0000-0000-0000000000b1';
+
+select assert_eq(close_stale_complaints(), 1,
+  'العدل: ومن سُئل ثم سكت — يُغلق ملفُّه، والصمتُ حينها رضًا');
+
+-- ═══ ٢٦) والإغلاقُ بالصمت يُعلَم به صاحبُه ═════════════════════════════
+select assert_eq(
+  (select count(*)::int from notifications
+   where complaint_id = 'ccc00000-0000-0000-0000-0000000000b1'
+     and title like '%أُغلقت شكواك%'),
+  1, 'المجاملة: ويُعلَم بالإغلاق — لا يُكتشف بابٌ مغلقٌ صدفةً');
+
+-- ═══ ٢٧) والارتدادُ يُخطر الإدارة لا الشاكي ═════════════════════════════
+insert into orders (id, laundry_id, branch_id, customer_id, status,
+                    subtotal, delivery_fee, total, delivered_at)
+values ('0dd00000-0000-0000-0000-0000000000e2','11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222','a0000000-0000-0000-0000-000000000001',
+        'delivered', 50, 10, 60, now());
+
+set local role authenticated;
+select auth.login_as('a0000000-0000-0000-0000-000000000001');
+insert into complaints (laundry_id, order_id, type_id, submitted_by,
+                        submitted_by_role, description)
+select '11111111-1111-1111-1111-111111111111',
+       '0dd00000-0000-0000-0000-0000000000e2', id,
+       'a0000000-0000-0000-0000-000000000001','customer','رائحةٌ في القطع'
+from complaint_types where code = 'bad_smell';
+
+select auth.login_as('a0000000-0000-0000-0000-000000000005');
+do $$
+declare c_id uuid;
+begin
+  select id into c_id from complaints
+  where order_id = '0dd00000-0000-0000-0000-0000000000e2';
+  perform resolve_complaint(c_id, 'عطّرناها');
+end $$;
+
+select auth.login_as('a0000000-0000-0000-0000-000000000001');
+select confirm_complaint_resolution(
+  (select id from complaints where order_id = '0dd00000-0000-0000-0000-0000000000e2'),
+  false, 'الرائحة باقية');
+
+select auth.logout();
+set local role postgres;
+select assert_eq(
+  (select count(*)::int from notifications
+   where complaint_id = (select id from complaints
+                         where order_id = '0dd00000-0000-0000-0000-0000000000e2')
+     and title like '%ارتدّت%'
+     and user_id = 'a0000000-0000-0000-0000-000000000005'),
+  1, 'الارتداد: يُخطَر به من يعالج لا من اشتكى');
+
+-- ولا يُخطَر الشاكي بارتداد شكواه: هو من ردّها، فرسالةٌ تخبره بذلك عبث.
+select assert_eq(
+  (select count(*)::int from notifications
+   where complaint_id = (select id from complaints
+                         where order_id = '0dd00000-0000-0000-0000-0000000000e2')
+     and title like '%ارتدّت%'
+     and user_id = 'a0000000-0000-0000-0000-000000000001'),
+  0, 'الارتداد: ولا يُخطَر به الشاكي — هو من ردّها');
+
+-- ═══ ٢٨) ومن أوقف قناةً يُسجَّل تخطّيه ولا يُبتلع ═══════════════════════
+insert into notification_preferences (user_id, push_enabled)
+values ('a0000000-0000-0000-0000-000000000001', false)
+on conflict (user_id) do update set push_enabled = false;
+
+insert into complaint_templates (laundry_id, event, channel, audience, body_ar)
+values ('11111111-1111-1111-1111-111111111111','acknowledged','push','customer',
+        'شكواك قيد المراجعة');
+
+insert into orders (id, laundry_id, branch_id, customer_id, status,
+                    subtotal, delivery_fee, total, delivered_at)
+values ('0dd00000-0000-0000-0000-0000000000e3','11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222','a0000000-0000-0000-0000-000000000001',
+        'delivered', 50, 10, 60, now());
+
+set local role authenticated;
+select auth.login_as('a0000000-0000-0000-0000-000000000001');
+insert into complaints (laundry_id, order_id, type_id, submitted_by,
+                        submitted_by_role, description)
+select '11111111-1111-1111-1111-111111111111',
+       '0dd00000-0000-0000-0000-0000000000e3', id,
+       'a0000000-0000-0000-0000-000000000001','customer','لونٌ نزل على قطعة'
+from complaint_types where code = 'color_run';
+
+select auth.login_as('a0000000-0000-0000-0000-000000000005');
+select claim_complaint(
+  (select id from complaints where order_id = '0dd00000-0000-0000-0000-0000000000e3'));
+
+select auth.logout();
+set local role postgres;
+select assert_eq(
+  (select status from notifications
+   where complaint_id = (select id from complaints
+                         where order_id = '0dd00000-0000-0000-0000-0000000000e3')
+     and channel = 'push'),
+  'skipped'::notification_status,
+  'التفضيل: من أوقف الدفع يُسجَّل تخطّيه صفًّا — لا يُبتلع بلا أثر');
+
+-- والقناةُ داخل التطبيق تصل دائمًا: هي التي تحمل السؤال حين لا مزوّد بعد.
+select assert_eq(
+  (select status from notifications
+   where complaint_id = (select id from complaints
+                         where order_id = '0dd00000-0000-0000-0000-0000000000e3')
+     and channel = 'in_app'
+     and user_id = 'a0000000-0000-0000-0000-000000000001'),
+  'queued'::notification_status,
+  'داخل التطبيق: تصل بلا مزوّدٍ خارجيّ — والسؤالُ يبلغ ولو لم يُضبط مفتاح');
 
 rollback;

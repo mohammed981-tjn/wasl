@@ -12,6 +12,7 @@ import '../../widgets/async_view.dart';
 import 'checkout_screen.dart';
 import 'loyalty_screen.dart';
 import 'my_complaints_screen.dart';
+import 'notifications_screen.dart';
 import 'my_orders_screen.dart';
 
 /// شاشة العميل: الكتالوج والسلّة.
@@ -82,6 +83,7 @@ class _CustomerHomeState extends State<CustomerHome> {
               MaterialPageRoute(builder: (_) => const MyOrdersScreen()),
             ),
           ),
+          const NotificationsBell(),
           IconButton(
             tooltip: 'شكاويّ',
             icon: const Icon(Icons.support_agent_outlined),

@@ -1779,3 +1779,46 @@ class DriverWarning {
         revokedReason: m['revoked_reason'] as String?,
       );
 }
+
+/// رسالةٌ في صندوق المستخدم.
+class AppNotification {
+  const AppNotification({
+    required this.id,
+    required this.body,
+    required this.createdAt,
+    this.title,
+    this.orderId,
+    this.complaintId,
+    this.readAt,
+    this.status = 'queued',
+  });
+
+  final String id;
+  final String? title;
+  final String body;
+  final DateTime createdAt;
+
+  /// إلى أين تفتح الرسالة؟ **الشكوى تسبق الطلب**: رسالةٌ عن شكوى على طلبٍ
+  /// تحمل المعرّفين معًا، والمقصودُ منها الشكوى.
+  final String? orderId;
+  final String? complaintId;
+
+  final DateTime? readAt;
+  final String status;
+
+  bool get isUnread => readAt == null;
+
+  /// رسالةٌ لم تُرسَل لأنّ صاحبَها أوقف قناتها. تُعرض ولا تُخفى.
+  bool get wasSkipped => status == 'skipped';
+
+  factory AppNotification.fromMap(Map<String, dynamic> m) => AppNotification(
+        id: m['id'] as String,
+        title: m['title'] as String?,
+        body: m['body'] as String? ?? '',
+        createdAt: _date(m['created_at']) ?? DateTime.now(),
+        orderId: m['order_id'] as String?,
+        complaintId: m['complaint_id'] as String?,
+        readAt: _date(m['read_at']),
+        status: m['status'] as String? ?? 'queued',
+      );
+}

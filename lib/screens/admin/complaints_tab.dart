@@ -34,10 +34,12 @@ class _ComplaintsTabState extends State<ComplaintsTab> {
     final results = await Future.wait([
       _service.queue(branchId: widget.branchId, status: _filter),
       _service.summary(laundryId: widget.laundryId),
+      _service.unnotifiedCount(widget.laundryId),
     ]);
     return _Board(
       queue: results[0] as List<Complaint>,
       summary: results[1] as ComplaintSummary,
+      unnotified: results[2] as int,
     );
   }
 
@@ -54,6 +56,10 @@ class _ComplaintsTabState extends State<ComplaintsTab> {
           padding: const EdgeInsets.all(12),
           children: [
             _SummaryCard(summary: board.summary),
+            if (board.unnotified > 0) ...[
+              const SizedBox(height: 10),
+              _UnnotifiedBanner(count: board.unnotified),
+            ],
             const SizedBox(height: 12),
             _FilterBar(
               current: _filter,
@@ -82,9 +88,16 @@ class _ComplaintsTabState extends State<ComplaintsTab> {
 }
 
 class _Board {
-  const _Board({required this.queue, required this.summary});
+  const _Board({
+    required this.queue,
+    required this.summary,
+    required this.unnotified,
+  });
   final List<Complaint> queue;
   final ComplaintSummary summary;
+
+  /// حُلّت ولم يبلغ أصحابَها — لن تُغلق تلقائيًّا.
+  final int unnotified;
 }
 
 /// **سطران يُقرآن معًا**: ما أُغلق بإقرار صاحبه، وما أُغلق بصمته.
@@ -615,4 +628,47 @@ class _ResolveSheetState extends State<_ResolveSheet> {
       ),
     );
   }
+}
+
+
+/// **شكاوى حُلّت ولم يبلغ أصحابَها.**
+///
+/// لن تُغلق تلقائيًّا: الكنسُ يشترط أن يكون صاحبُها قد سُئل، وإلّا كان
+/// الإغلاقُ بالصمت إغلاقًا بالجهل. فتبقى في الطابور — **والسببُ يُعرض هنا
+/// بدل أن يُكتشف بعد شهرٍ من التساؤل عن صفوفٍ لا تتحرّك.**
+class _UnnotifiedBanner extends StatelessWidget {
+  const _UnnotifiedBanner({required this.count});
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.amber.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(children: [
+          Icon(Icons.notifications_off_outlined, color: Colors.amber.shade900),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  count == 1
+                      ? 'شكوى حُلّت ولم يبلغ صاحبَها ردُّها'
+                      : '$count شكاوى حُلّت ولم يبلغ أصحابَها ردُّها',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'لن تُغلق تلقائيًّا — لا يُغلق ملفٌّ على من لم يُسأل. '
+                  'راجع قوالبَ رسائل الشكاوى.',
+                  style: TextStyle(fontSize: 12.5),
+                ),
+              ],
+            ),
+          ),
+        ]),
+      );
 }
