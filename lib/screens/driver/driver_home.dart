@@ -11,6 +11,7 @@ import '../../services/session_service.dart';
 import '../../services/supabase_service.dart';
 import '../../widgets/async_view.dart';
 import 'job_screen.dart';
+import 'my_record_screen.dart';
 
 /// شاشة السائق: مهامُّ الطريق.
 ///
@@ -131,6 +132,13 @@ class _DriverHomeState extends State<DriverHome> {
         title: const Text('وصل • السائق'),
         actions: [
           IconButton(onPressed: _reload, icon: const Icon(Icons.refresh)),
+          IconButton(
+            tooltip: 'سجلّي',
+            icon: const Icon(Icons.assignment_ind_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MyRecordScreen()),
+            ),
+          ),
           IconButton(
               onPressed: session.signOut, icon: const Icon(Icons.logout)),
         ],

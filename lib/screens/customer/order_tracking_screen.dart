@@ -4,12 +4,15 @@ import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../models/enums.dart';
 import '../../models/models.dart';
+import '../../services/complaints_service.dart';
 import '../../services/feedback_service.dart';
 import '../../services/orders_service.dart';
 import '../../services/payments_service.dart';
 import '../../widgets/async_view.dart';
+import 'my_complaints_screen.dart';
 import 'pay_card.dart';
 import 'rating_card.dart';
+import 'submit_complaint_screen.dart';
 
 /// تتبّع الطلب.
 ///
@@ -125,6 +128,11 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                   onSaved: _reload,
                 ),
               ],
+              // **وبابُ الشكوى هنا لا في قائمةٍ بعيدة.** من وجد بقعةً في
+              // ثوبه يفتح شاشة طلبه أوّلًا؛ وإخفاءُ الباب عنه لا يمنع الشكوى
+              // بل يحوّلها إلى مكالمةٍ غاضبةٍ أو نجمةٍ واحدةٍ بلا تفصيل.
+              const SizedBox(height: 16),
+              _ComplaintSection(order: order),
               if (PaymentsService.owesPayment(order)) ...[
                 const SizedBox(height: 16),
                 PayCard(
@@ -410,4 +418,73 @@ class _Items extends StatelessWidget {
           ],
         ),
       );
+}
+
+
+/// بابُ الشكوى في شاشة الطلب: ما فُتح منها، وزرُّ فتح جديدة.
+class _ComplaintSection extends StatefulWidget {
+  const _ComplaintSection({required this.order});
+  final LaundryOrder order;
+
+  @override
+  State<_ComplaintSection> createState() => _ComplaintSectionState();
+}
+
+class _ComplaintSectionState extends State<_ComplaintSection> {
+  final _service = const ComplaintsService();
+  late Future<List<Complaint>> _load = _service.forOrder(widget.order.id);
+
+  void _reload() =>
+      setState(() => _load = _service.forOrder(widget.order.id));
+
+  /// أطرافُ هذا الطلب الذين يجوز أن يُشتكى عليهم.
+  ///
+  /// **ولا يُعرض إلا من مسّ الطلب فعلًا** — والقاعدة تفحصه ثانيةً: شاكٍ يضع
+  /// سائقًا لم يقترب من طلبه يُلطّخ سجلَّ بريء.
+  List<({String id, String name, String role})> get _parties {
+    final o = widget.order;
+    return [
+      if (o.deliveryDriverId != null)
+        (id: o.deliveryDriverId!, name: 'سائق التسليم', role: 'driver'),
+      if (o.pickupDriverId != null && o.pickupDriverId != o.deliveryDriverId)
+        (id: o.pickupDriverId!, name: 'سائق الاستلام', role: 'driver'),
+    ];
+  }
+
+  Future<void> _open() async {
+    final done = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => SubmitComplaintScreen(
+          order: widget.order,
+          role: 'customer',
+          parties: _parties,
+        ),
+      ),
+    );
+    if (done == true) _reload();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Complaint>>(
+      future: _load,
+      builder: (context, snap) {
+        final list = snap.data ?? const <Complaint>[];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final c in list) ...[
+              ComplaintCard(complaint: c, role: 'customer', onChanged: _reload),
+              const SizedBox(height: 8),
+            ],
+            OutlinedButton.icon(
+              onPressed: _open,
+              icon: const Icon(Icons.report_problem_outlined, size: 18),
+              label: Text(list.isEmpty ? 'مشكلةٌ في هذا الطلب؟' : 'شكوى أخرى'),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }

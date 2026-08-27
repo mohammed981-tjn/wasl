@@ -6,6 +6,7 @@ import '../../models/models.dart';
 import '../../services/laundry_service.dart';
 import '../../services/supabase_service.dart';
 import '../../widgets/async_view.dart';
+import '../customer/submit_complaint_screen.dart';
 import 'count_compare.dart';
 
 /// استقبال الطلب داخل المغسلة: جردُ القطع، ونقلُ المرحلة.
@@ -24,6 +25,10 @@ class OrderIntakeScreen extends StatefulWidget {
 class _OrderIntakeScreenState extends State<OrderIntakeScreen> {
   final _ops = const LaundryOpsService();
   late Future<(LaundryOrder, List<OrderGarment>, List<OrderStatus>)> _future;
+
+  /// الطلبُ كما جُلب — يحتاجه الشريطُ العلويّ، ويُضبط عند اكتمال الجلب لا
+  /// في `build`: الشريطُ يُبنى قبل الجسد فيقرأ `null` أوّلَ مرّة.
+  LaundryOrder? _order;
   bool _busy = false;
 
   @override
@@ -33,14 +38,23 @@ class _OrderIntakeScreenState extends State<OrderIntakeScreen> {
   }
 
   void _reload() {
-    setState(() {
-      _future = () async {
-        final order = await _ops.order(widget.orderId);
-        final garments = await _ops.garments(widget.orderId);
-        final next = await _ops.allowedNext(order.status);
-        return (order, garments, next);
-      }();
-    });
+    final future = () async {
+      final order = await _ops.order(widget.orderId);
+      final garments = await _ops.garments(widget.orderId);
+      final next = await _ops.allowedNext(order.status);
+      return (order, garments, next);
+    }();
+    setState(() => _future = future);
+    // الخطأ يعرضه `AsyncView`؛ وما يعنينا هنا ألّا يبقى زرُّ الشكوى معروضًا
+    // على طلبٍ لم يُجلب.
+    future.then(
+      (data) {
+        if (mounted) setState(() => _order = data.$1);
+      },
+      onError: (Object _) {
+        if (mounted) setState(() => _order = null);
+      },
+    );
   }
 
   void _showError(Object e) {
@@ -86,6 +100,38 @@ class _OrderIntakeScreenState extends State<OrderIntakeScreen> {
       appBar: AppBar(
         title: const Text('استقبال الطلب'),
         actions: [
+          // **واختلافُ عدد القطع يُسجَّل شكوى لا يُروى شفاهًا.** «سلّمتُه
+          // اثنتي عشرة» / «استلمتُ إحدى عشرة» نزاعٌ بلا سندٍ إن لم يُقيَّد
+          // لحظتَه — وعندنا الباركودُ وعدُّ القطع في القاعدة، فالشكوى تُفتح
+          // ومعها دليلٌ آليّ لا روايةُ طرفين.
+          if (_order != null)
+            IconButton(
+              tooltip: 'مشكلةٌ في هذا الطلب',
+              icon: const Icon(Icons.report_problem_outlined),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => SubmitComplaintScreen(
+                    order: _order!,
+                    role: 'laundry_staff',
+                    parties: [
+                      if (_order!.pickupDriverId != null)
+                        (
+                          id: _order!.pickupDriverId!,
+                          name: 'سائق الاستلام',
+                          role: 'driver'
+                        ),
+                      if (_order!.deliveryDriverId != null &&
+                          _order!.deliveryDriverId != _order!.pickupDriverId)
+                        (
+                          id: _order!.deliveryDriverId!,
+                          name: 'سائق التسليم',
+                          role: 'driver'
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           IconButton(onPressed: _reload, icon: const Icon(Icons.refresh)),
         ],
       ),

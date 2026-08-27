@@ -8,6 +8,7 @@ import '../../services/driver_service.dart';
 import '../../services/location_service.dart';
 import '../../services/supabase_service.dart';
 import '../../widgets/async_view.dart';
+import '../customer/submit_complaint_screen.dart';
 
 /// المهمّة الواحدة: ما يحتاجه السائق وهو واقفٌ عند الباب.
 ///
@@ -27,6 +28,13 @@ class _JobScreenState extends State<JobScreen> {
   final _location = const LocationService();
 
   late Future<DriverJob?> _future;
+
+  /// آخرُ مهمّةٍ جُلبت — يحتاجها شريطُ العنوان.
+  ///
+  /// **ويُضبط عند اكتمال الجلب لا في `build`.** الشريطُ العلويّ يُبنى قبل
+  /// الجسد في المرور نفسه، فإسنادُه هناك يجعله يقرأ `null` أوّلَ مرّة —
+  /// فلا يظهر الزرّ حتى يقع بناءٌ آخرُ لسببٍ لا علاقة له به.
+  DriverJob? _job;
   bool _busy = false;
 
   @override
@@ -37,7 +45,18 @@ class _JobScreenState extends State<JobScreen> {
 
   void _reload() {
     final uid = Db.currentUser?.id ?? '';
-    setState(() => _future = _driver.job(widget.orderId, uid));
+    final future = _driver.job(widget.orderId, uid);
+    setState(() => _future = future);
+    // الخطأ يعرضه `AsyncView`؛ وكلُّ ما يعنينا هنا ألّا يبقى زرُّ الشكوى
+    // معروضًا على مهمّةٍ لم تُجلب.
+    future.then(
+      (job) {
+        if (mounted) setState(() => _job = job);
+      },
+      onError: (Object _) {
+        if (mounted) setState(() => _job = null);
+      },
+    );
   }
 
   void _say(String message) {
@@ -159,6 +178,29 @@ class _JobScreenState extends State<JobScreen> {
       appBar: AppBar(
         title: const Text('المهمّة'),
         actions: [
+          // **بابُ الشكوى في يد السائق أيضًا.** «العميل لا يردّ» و«العنوان
+          // خاطئ» و«الطلب لم يكن جاهزًا» وقائعُ تقع في هذه الشاشة بالذات،
+          // وتسجيلُها لحظتَها أدقُّ من روايتها آخرَ اليوم في مكالمة.
+          if (_job != null)
+            IconButton(
+              tooltip: 'مشكلةٌ في هذه المهمّة',
+              icon: const Icon(Icons.report_problem_outlined),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => SubmitComplaintScreen(
+                    order: _job!.order,
+                    role: 'driver',
+                    parties: [
+                      (
+                        id: _job!.order.customerId,
+                        name: _job!.order.customerName ?? 'العميل',
+                        role: 'customer'
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           IconButton(onPressed: _reload, icon: const Icon(Icons.refresh)),
         ],
       ),

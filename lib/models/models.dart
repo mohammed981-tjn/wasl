@@ -1432,3 +1432,350 @@ class LoyaltyTxn {
         note: m['note'] as String?,
       );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// الشكاوى
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// حالةُ الشكوى.
+///
+/// **`resolved` ليست نهايةً بل سؤالًا**: المدير قرّر، وبقي أن يقول صاحبُها
+/// إن كان القرار حلًّا. و`closed` وحدها النهاية.
+enum ComplaintStatus {
+  open('open', 'جديدة'),
+  inProgress('in_progress', 'قيد المعالجة'),
+  resolved('resolved', 'بانتظار تأكيدك'),
+  closed('closed', 'مغلقة');
+
+  const ComplaintStatus(this.code, this.label);
+  final String code;
+  final String label;
+
+  static ComplaintStatus parse(String? v) => values.firstWhere(
+        (s) => s.code == v,
+        orElse: () => ComplaintStatus.open,
+      );
+
+  /// هل تنتظر عملًا من الإدارة؟
+  bool get needsStaff => this == open || this == inProgress;
+}
+
+/// نوعُ الشكوى — صفٌّ في `complaint_types` لا قيمةٌ في الشيفرة.
+///
+/// **ولذلك لا enum هنا**: النوعُ قاعدةُ عملٍ تُضيفها الإدارة وتعطّلها، وenum
+/// في التطبيق يعني إصدارًا جديدًا لكل نوعٍ جديد.
+class ComplaintType {
+  const ComplaintType({
+    required this.id,
+    required this.code,
+    required this.labelAr,
+    this.forRole,
+    this.suggestedAgainst,
+    this.allowsGeneral = false,
+  });
+
+  final String id;
+  final String code;
+  final String labelAr;
+
+  /// الدورُ الذي يملك فتحَ هذا النوع؛ `null` = كلُّ الأدوار.
+  final String? forRole;
+
+  /// الطرفُ المشكوّ منه المقترَح — تُملأ به الشاشة ويبقى للشاكي تغييرُه.
+  final String? suggestedAgainst;
+
+  /// هل يُقبل بلا طلب (تذكرةٌ عامّة)؟
+  final bool allowsGeneral;
+
+  factory ComplaintType.fromMap(Map<String, dynamic> m) => ComplaintType(
+        id: m['id'] as String,
+        code: m['code'] as String? ?? '',
+        labelAr: m['label_ar'] as String? ?? '',
+        forRole: m['for_role'] as String?,
+        suggestedAgainst: m['suggested_against'] as String?,
+        allowsGeneral: m['allows_general'] as bool? ?? false,
+      );
+}
+
+/// إعداداتُ الشكاوى لمغسلة — أربعةُ أرقامٍ ليس واحدٌ منها في الشيفرة.
+class ComplaintSettings {
+  const ComplaintSettings({
+    this.isEnabled = true,
+    this.windowHours = 48,
+    this.responseSlaHours = 24,
+    this.autoCloseDays = 3,
+    this.driverWarningThreshold = 3,
+    this.allowGeneralTickets = true,
+  });
+
+  final bool isEnabled;
+  final int windowHours;
+  final int responseSlaHours;
+  final int autoCloseDays;
+  final int driverWarningThreshold;
+  final bool allowGeneralTickets;
+
+  factory ComplaintSettings.fromMap(Map<String, dynamic> m) =>
+      ComplaintSettings(
+        isEnabled: m['is_enabled'] as bool? ?? true,
+        windowHours: _int(m['window_hours']),
+        responseSlaHours: _int(m['response_sla_hours']),
+        autoCloseDays: _int(m['auto_close_days']),
+        driverWarningThreshold: _int(m['driver_warning_threshold']),
+        allowGeneralTickets: m['allow_general_tickets'] as bool? ?? true,
+      );
+}
+
+/// شكوى — كما تُقرأ من `complaints_queue` أو من الجدول.
+class Complaint {
+  const Complaint({
+    required this.id,
+    required this.number,
+    required this.status,
+    required this.description,
+    required this.createdAt,
+    this.typeLabel = '',
+    this.orderId,
+    this.orderNumber,
+    this.branchId,
+    this.submittedBy,
+    this.submittedByName,
+    this.submittedByRole,
+    this.againstId,
+    this.againstName,
+    this.againstRole,
+    this.resolution,
+    this.internalNote,
+    this.firstResponseAt,
+    this.resolvedAt,
+    this.responseDueAt,
+    this.autoCloseAt,
+    this.slaBreached = false,
+    this.reopenCount = 0,
+    this.closedByTimeout = false,
+    this.photoUrls = const [],
+  });
+
+  final String id;
+  final int number;
+  final ComplaintStatus status;
+  final String description;
+  final DateTime createdAt;
+  final String typeLabel;
+
+  final String? orderId;
+  final int? orderNumber;
+  final String? branchId;
+
+  final String? submittedBy;
+  final String? submittedByName;
+  final String? submittedByRole;
+
+  final String? againstId;
+  final String? againstName;
+  final String? againstRole;
+
+  /// ما كُتب للشاكي — يُقرأ في تطبيقه.
+  final String? resolution;
+
+  /// وما كُتب للإدارة — لا يصل شاشتَه.
+  final String? internalNote;
+
+  final DateTime? firstResponseAt;
+  final DateTime? resolvedAt;
+
+  /// متى وعدنا بالردّ، وهل تجاوزناه؟ يحسبهما المنظر في القاعدة.
+  final DateTime? responseDueAt;
+  final bool slaBreached;
+
+  /// ومتى تُغلق تلقائيًّا إن سكت صاحبُها.
+  final DateTime? autoCloseAt;
+
+  final int reopenCount;
+  final bool closedByTimeout;
+  final List<String> photoUrls;
+
+  /// رقمٌ يُقال في الهاتف.
+  String get displayNumber => '#$number';
+
+  /// هل يُنتظر جوابُ صاحبها الآن؟
+  bool get awaitingConfirmation => status == ComplaintStatus.resolved;
+
+  /// كم بقي من مهلة تأكيدها قبل أن تُغلق بالصمت؟
+  Duration? get confirmTimeLeft {
+    if (!awaitingConfirmation || autoCloseAt == null) return null;
+    final left = autoCloseAt!.difference(DateTime.now());
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  /// ارتدّت من قبل: قال صاحبُها «لم تُحل».
+  bool get wasReopened => reopenCount > 0;
+
+  factory Complaint.fromMap(Map<String, dynamic> m) => Complaint(
+        id: m['id'] as String,
+        number: _int(m['complaint_number']),
+        status: ComplaintStatus.parse(m['status'] as String?),
+        description: m['description'] as String? ?? '',
+        createdAt: _date(m['created_at']) ?? DateTime.now(),
+        typeLabel: m['type_label'] as String? ??
+            (m['complaint_types'] as Map<String, dynamic>?)?['label_ar']
+                as String? ??
+            '',
+        orderId: m['order_id'] as String?,
+        orderNumber: m['order_number'] == null ? null : _int(m['order_number']),
+        branchId: m['branch_id'] as String?,
+        submittedBy: m['submitted_by'] as String?,
+        submittedByName: m['submitted_by_name'] as String?,
+        submittedByRole: m['submitted_by_role'] as String?,
+        againstId: m['against_id'] as String?,
+        againstName: m['against_name'] as String?,
+        againstRole: m['against_role'] as String?,
+        resolution: m['resolution'] as String?,
+        internalNote: m['internal_note'] as String?,
+        firstResponseAt: _date(m['first_response_at']),
+        resolvedAt: _date(m['resolved_at']),
+        responseDueAt: _date(m['response_due_at']),
+        autoCloseAt: _date(m['auto_close_at']),
+        slaBreached: m['sla_breached'] as bool? ?? false,
+        reopenCount: _int(m['reopen_count']),
+        closedByTimeout: m['closed_by_timeout'] as bool? ?? false,
+        photoUrls: (m['photo_urls'] as List?)?.cast<String>() ?? const [],
+      );
+}
+
+/// رسالةٌ في محادثة الشكوى.
+class ComplaintMessage {
+  const ComplaintMessage({
+    required this.id,
+    required this.senderId,
+    required this.senderRole,
+    required this.body,
+    required this.createdAt,
+    this.isInternal = false,
+  });
+
+  final String id;
+  final String senderId;
+  final String senderRole;
+  final String body;
+  final DateTime createdAt;
+
+  /// ملاحظةٌ بين الموظّفين لا تصل شاشةَ الشاكي — تحرسها السياسة لا الشاشة.
+  final bool isInternal;
+
+  factory ComplaintMessage.fromMap(Map<String, dynamic> m) => ComplaintMessage(
+        id: m['id'] as String,
+        senderId: m['sender_id'] as String? ?? '',
+        senderRole: m['sender_role'] as String? ?? 'customer',
+        body: m['body'] as String? ?? '',
+        createdAt: _date(m['created_at']) ?? DateTime.now(),
+        isInternal: m['is_internal'] as bool? ?? false,
+      );
+}
+
+/// نتيجةُ قرارِ الحلّ كما تعيدها `resolve_complaint`.
+class ComplaintResolution {
+  const ComplaintResolution({
+    this.refundAmount = 0,
+    this.loyaltyPoints = 0,
+    this.warned = false,
+    this.activeWarnings = 0,
+    this.actions = const [],
+    this.confirmBy,
+  });
+
+  final double refundAmount;
+  final int loyaltyPoints;
+  final bool warned;
+  final int activeWarnings;
+  final List<String> actions;
+  final DateTime? confirmBy;
+
+  factory ComplaintResolution.fromMap(Map<String, dynamic> m) =>
+      ComplaintResolution(
+        refundAmount: (m['refund_amount'] as num?)?.toDouble() ?? 0,
+        loyaltyPoints: _int(m['loyalty_points']),
+        warned: m['warned'] as bool? ?? false,
+        activeWarnings: _int(m['active_warnings']),
+        actions: (m['actions'] as List?)?.cast<String>() ?? const [],
+        confirmBy: _date(m['confirm_by']),
+      );
+}
+
+/// ملخّصُ الشكاوى للوحة.
+class ComplaintSummary {
+  const ComplaintSummary({
+    this.total = 0,
+    this.openNow = 0,
+    this.inProgressNow = 0,
+    this.slaBreached = 0,
+    this.closedConfirmed = 0,
+    this.closedBySilence = 0,
+    this.reopened = 0,
+    this.medianResponseHours,
+    this.byType = const {},
+  });
+
+  final int total;
+  final int openNow;
+  final int inProgressNow;
+  final int slaBreached;
+
+  /// **سطران يُقرآن معًا**: ما أُغلق بإقرار صاحبه، وما أُغلق بصمته. والثاني
+  /// ليس نجاحًا مهما بدا في العدّ الإجماليّ.
+  final int closedConfirmed;
+  final int closedBySilence;
+
+  final int reopened;
+  final double? medianResponseHours;
+  final Map<String, int> byType;
+
+  int get needsWork => openNow + inProgressNow;
+
+  factory ComplaintSummary.fromMap(Map<String, dynamic> m) => ComplaintSummary(
+        total: _int(m['total']),
+        openNow: _int(m['open_now']),
+        inProgressNow: _int(m['in_progress_now']),
+        slaBreached: _int(m['sla_breached']),
+        closedConfirmed: _int(m['closed_confirmed']),
+        closedBySilence: _int(m['closed_by_silence']),
+        reopened: _int(m['reopened']),
+        medianResponseHours:
+            (m['median_response_hours'] as num?)?.toDouble(),
+        byType: ((m['by_type'] as Map?) ?? const {}).map(
+          (k, v) => MapEntry(k as String, _int(v)),
+        ),
+      );
+}
+
+/// إنذارٌ على سائق — صفٌّ يُراجَع لا عدّادٌ يُزاد.
+class DriverWarning {
+  const DriverWarning({
+    required this.id,
+    required this.reason,
+    required this.createdAt,
+    this.expiresAt,
+    this.revokedAt,
+    this.revokedReason,
+  });
+
+  final String id;
+  final String reason;
+  final DateTime createdAt;
+  final DateTime? expiresAt;
+  final DateTime? revokedAt;
+  final String? revokedReason;
+
+  bool get isActive =>
+      revokedAt == null &&
+      (expiresAt == null || expiresAt!.isAfter(DateTime.now()));
+
+  factory DriverWarning.fromMap(Map<String, dynamic> m) => DriverWarning(
+        id: m['id'] as String,
+        reason: m['reason'] as String? ?? '',
+        createdAt: _date(m['created_at']) ?? DateTime.now(),
+        expiresAt: _date(m['expires_at']),
+        revokedAt: _date(m['revoked_at']),
+        revokedReason: m['revoked_reason'] as String?,
+      );
+}

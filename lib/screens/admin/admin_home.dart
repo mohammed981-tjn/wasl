@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/enums.dart';
 import '../../services/session_service.dart';
+import 'complaints_tab.dart';
 import 'coupons_tab.dart';
 import 'dashboard_tab.dart';
 import 'delivery_fees_tab.dart';
@@ -38,6 +39,7 @@ class _AdminHomeState extends State<AdminHome> {
     (icon: Icons.map_outlined, selected: Icons.map, label: 'الخريطة'),
     (icon: Icons.schedule_outlined, selected: Icons.schedule, label: 'المواعيد والطاقة'),
     (icon: Icons.confirmation_number_outlined, selected: Icons.confirmation_number, label: 'الكوبونات'),
+    (icon: Icons.report_problem_outlined, selected: Icons.report_problem, label: 'الشكاوى'),
     (icon: Icons.badge_outlined, selected: Icons.badge, label: 'الموظّفون'),
     (icon: Icons.payments_outlined, selected: Icons.payments, label: 'المدفوعات'),
     (icon: Icons.campaign_outlined, selected: Icons.campaign, label: 'رسائل العميل'),
@@ -65,9 +67,15 @@ class _AdminHomeState extends State<AdminHome> {
       4 => const MapTab(),
       5 => const ScheduleTab(),
       6 => const CouponsTab(),
-      7 => const StaffTab(),
-      8 => const PaymentsTab(),
-      9 => const TemplatesTab(),
+      7 => ComplaintsTab(
+          // الفرعُ المختار يقيّد الطابور؛ ومغسلتُه تقيّد الملخّص. ومالكُ
+          // المنصّة يبدّل الفرع فيتبدّل الطابور معه.
+          laundryId: session.activeBranch?.laundryId ?? '',
+          branchId: session.activeBranchId,
+        ),
+      8 => const StaffTab(),
+      9 => const PaymentsTab(),
+      10 => const TemplatesTab(),
       _ => const ReportsTab(),
     };
 

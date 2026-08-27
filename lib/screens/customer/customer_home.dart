@@ -11,6 +11,7 @@ import '../../services/supabase_service.dart';
 import '../../widgets/async_view.dart';
 import 'checkout_screen.dart';
 import 'loyalty_screen.dart';
+import 'my_complaints_screen.dart';
 import 'my_orders_screen.dart';
 
 /// شاشة العميل: الكتالوج والسلّة.
@@ -79,6 +80,13 @@ class _CustomerHomeState extends State<CustomerHome> {
             icon: const Icon(Icons.receipt_long_outlined),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const MyOrdersScreen()),
+            ),
+          ),
+          IconButton(
+            tooltip: 'شكاويّ',
+            icon: const Icon(Icons.support_agent_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MyComplaintsScreen()),
             ),
           ),
           IconButton(
