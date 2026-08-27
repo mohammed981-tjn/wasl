@@ -24,11 +24,13 @@ begin
   end if;
   raise notice '✓ النظافة: لا امتداد في public';
 
-  -- ٢) ودوالّنا وحدها فيه: عددٌ كبير يعني امتدادًا تسرّب
+  -- ٢) ودوالّنا وحدها فيه: عددٌ كبير يعني امتدادًا تسرّب.
+  -- والسقفُ فضفاضٌ عمدًا: امتدادٌ واحدٌ يتسرّب (PostGIS) يجرّ **مئاتٍ**، فلا
+  -- حاجة لسقفٍ ضيّقٍ يُرفع مع كل مهاجرة حتى يصير رفعُه عادةً لا فحصًا.
   select count(*) into n
   from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
   where ns.nspname = 'public';
-  if n > 60 then
+  if n > 150 then
     raise exception '✗ النظافة: % دالّة في public — امتدادٌ تسرّب إليه', n;
   end if;
   raise notice '✓ النظافة: % دالّة في public — دوالّنا وحدها', n;
@@ -233,7 +235,15 @@ do $$
 declare fn text; n int := 0; names text := '';
 begin
   foreach fn in array array[
-    'apply_payment_result', 'open_payment_session', 'record_webhook_event'
+    'apply_payment_result', 'open_payment_session', 'record_webhook_event',
+    -- والكنسُ الدوريّ: دالّةٌ تُغلق شكاوى الناس لا تُنادى من هاتف.
+    'close_stale_complaints',
+    -- ومساعداتُ الحرّاس: تُستدعى **من داخل** دوالَّ `security definer`، فلا
+    -- تحتاج منحًا للحزمة. وكشفُها يعطي أيَّ مسجَّلٍ مسبارًا يسأل به عن غيره:
+    -- «كم إنذارًا على هذا السائق؟» و«أهذا طرفٌ في ذلك الطلب؟».
+    'is_party_to_order', 'complainant_role', 'complaint_is_staff',
+    'driver_active_warnings', 'driver_is_barred',
+    'seed_complaint_types'
   ] loop
     if exists (
       select 1 from pg_proc p
