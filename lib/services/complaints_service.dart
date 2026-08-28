@@ -36,6 +36,98 @@ class ComplaintsService {
         .toList();
   }
 
+  /// كلُّ الأنواع بلا ترشيحٍ بدور — للوحة الإدارة، ومنها المعطَّل.
+  ///
+  /// **والمعطَّلُ يُعرض ولا يُخفى**: الإدارةُ تحتاج أن ترى ما عطّلته كي
+  /// تعيده، وقائمةٌ تعرض النشط وحده تجعل التعطيل حذفًا لا رجعة فيه من
+  /// وجهة نظر من يستعمل الشاشة.
+  Future<List<ComplaintType>> allTypes(String laundryId) async {
+    final rows = await Db.client
+        .from('complaint_types')
+        .select()
+        .eq('laundry_id', laundryId)
+        .order('sort_order') as List;
+    return rows.cast<Map<String, dynamic>>().map(ComplaintType.fromMap).toList();
+  }
+
+  Future<void> saveType(ComplaintType t, {required String laundryId}) =>
+      t.id.isEmpty
+          ? Db.client.from('complaint_types').insert({
+              'laundry_id': laundryId,
+              'code': t.code,
+              'label_ar': t.labelAr,
+              'for_role': t.forRole,
+              'suggested_against': t.suggestedAgainst,
+              'allows_general': t.allowsGeneral,
+              'is_active': t.isActive,
+              'sort_order': t.sortOrder,
+            })
+          // **الرمزُ لا يُرسَل في التحديث**: القاعدة تمنع تبديلَه على نوعٍ
+          // استُعمل، وإرسالُه بقيمته نفسها يمرّ — لكنّ إرساله أصلًا يغري
+          // بجعله حقلًا يُحرَّر في الشاشة، وهو ليس كذلك.
+          : Db.client.from('complaint_types').update({
+              'label_ar': t.labelAr,
+              'for_role': t.forRole,
+              'suggested_against': t.suggestedAgainst,
+              'allows_general': t.allowsGeneral,
+              'is_active': t.isActive,
+              'sort_order': t.sortOrder,
+            }).eq('id', t.id);
+
+  Future<void> deleteType(String id) =>
+      Db.client.from('complaint_types').delete().eq('id', id);
+
+  /// قوالبُ رسائل الشكاوى.
+  Future<List<ComplaintTemplate>> templates(String laundryId) async {
+    final rows = await Db.client
+        .from('complaint_templates')
+        .select()
+        .eq('laundry_id', laundryId) as List;
+    return rows
+        .cast<Map<String, dynamic>>()
+        .map(ComplaintTemplate.fromMap)
+        .toList();
+  }
+
+  Future<void> saveTemplate(ComplaintTemplate t, {required String laundryId}) =>
+      t.id.isEmpty
+          ? Db.client.from('complaint_templates').insert({
+              'laundry_id': laundryId,
+              'event': t.event.code,
+              'channel': t.channel,
+              'audience': t.audience,
+              'title_ar': t.titleAr,
+              'body_ar': t.bodyAr,
+              'is_active': t.isActive,
+            })
+          : Db.client.from('complaint_templates').update({
+              'title_ar': t.titleAr,
+              'body_ar': t.bodyAr,
+              'is_active': t.isActive,
+            }).eq('id', t.id);
+
+  Future<void> deleteTemplate(String id) =>
+      Db.client.from('complaint_templates').delete().eq('id', id);
+
+  /// حفظُ الإعدادات.
+  ///
+  /// **`upsert` لا `update`**: مغسلةٌ أُنشئت قبل مهاجرة الشكاوى قد تكون بلا
+  /// صفّ إعدادات، و`update` عليها يمسّ صفرَ صفوفٍ **وينجح** — فتظهر الشاشة
+  /// وكأنّها حفظت، ويعود الرقمُ القديم عند أوّل تحديث.
+  Future<void> saveSettings({
+    required String laundryId,
+    required ComplaintSettings settings,
+  }) =>
+      Db.client.from('complaint_settings').upsert({
+        'laundry_id': laundryId,
+        'is_enabled': settings.isEnabled,
+        'window_hours': settings.windowHours,
+        'response_sla_hours': settings.responseSlaHours,
+        'auto_close_days': settings.autoCloseDays,
+        'driver_warning_threshold': settings.driverWarningThreshold,
+        'allow_general_tickets': settings.allowGeneralTickets,
+      }, onConflict: 'laundry_id');
+
   Future<ComplaintSettings> settings(String laundryId) async {
     final rows = await Db.client
         .from('complaint_settings')

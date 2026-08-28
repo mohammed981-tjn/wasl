@@ -55,6 +55,19 @@ class AppTheme {
         iconTheme: const IconThemeData(color: Colors.white),
       ),
 
+      // شريطُ التبويب داخل شريط العنوان
+      //
+      // **بلا هذا يختفي عنوانُ التبويب المختار.** Material 3 يلوّن المختار
+      // بـ`colorScheme.primary`، وشريطُ العنوان عندنا **بلون primary نفسه**
+      // — فيصير أخضرَ على أخضر. وغيرُ المختار يبقى ظاهرًا (لونٌ آخر)، فيبدو
+      // العطلُ «تبويبًا بلا اسم» لا خطأَ لون، ولا يُشكّ في السبب.
+      tabBarTheme: TabBarThemeData(
+        labelColor: colorScheme.onPrimary,
+        unselectedLabelColor: colorScheme.onPrimary.withValues(alpha: 0.70),
+        indicatorColor: colorScheme.onPrimary,
+        dividerColor: Colors.transparent,
+      ),
+
       // Cards / surfaces
       cardTheme: CardThemeData(
         color: Colors.white,
@@ -183,6 +196,13 @@ class AppTheme {
           color: Colors.white,
         ),
         iconTheme: IconThemeData(color: Colors.white),
+      ),
+
+      tabBarTheme: TabBarThemeData(
+        labelColor: Colors.white,
+        unselectedLabelColor: Colors.white.withValues(alpha: 0.70),
+        indicatorColor: Colors.white,
+        dividerColor: Colors.transparent,
       ),
 
       cardTheme: CardThemeData(

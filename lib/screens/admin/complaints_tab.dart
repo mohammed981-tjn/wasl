@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
+import '../../models/enums.dart';
 import '../../models/models.dart';
 import '../../services/complaints_service.dart';
+import '../../services/session_service.dart';
 import '../../services/supabase_service.dart';
 import '../../widgets/async_view.dart';
 import '../../widgets/countdown.dart';
 import '../customer/my_complaints_screen.dart' show ComplaintChat;
+import 'complaint_settings_screen.dart';
 
 /// لوحةُ خدمة العملاء.
 ///
@@ -55,6 +59,8 @@ class _ComplaintsTabState extends State<ComplaintsTab> {
         builder: (context, board) => ListView(
           padding: const EdgeInsets.all(12),
           children: [
+            _SettingsRow(laundryId: widget.laundryId, onReturn: _reload),
+            const SizedBox(height: 8),
             _SummaryCard(summary: board.summary),
             if (board.unnotified > 0) ...[
               const SizedBox(height: 10),
@@ -671,4 +677,45 @@ class _UnnotifiedBanner extends StatelessWidget {
           ),
         ]),
       );
+}
+
+
+/// **بابُ الضبط في الطابور لا في قائمةٍ بعيدة.** من يقرأ «ثلاثُ شكاوى
+/// تجاوزت مهلة الردّ» هو من يريد تعديلَ تلك المهلة — أو تعديلَ رسالةٍ لم
+/// تصل. وإبعادُ الزرّ عن الرقم يجعل الرقمَ ملاحظةً لا فعلًا.
+class _SettingsRow extends StatelessWidget {
+  const _SettingsRow({required this.laundryId, required this.onReturn});
+
+  final String laundryId;
+  final VoidCallback onReturn;
+
+  @override
+  Widget build(BuildContext context) {
+    final session = context.watch<SessionService>();
+    // **خدمةُ العملاء تعالج ولا تُشرّع**: من يملك تمديد مهلة التأكيد يملك
+    // إغلاق ما يشاء بالصمت. والقاعدةُ تفرضه كذلك — وهذا يوافقها لا يحلّ محلّها.
+    final canEdit =
+        session.hasRoleInActiveBranch({AppRole.branchManager});
+
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: OutlinedButton.icon(
+        onPressed: laundryId.isEmpty
+            ? null
+            : () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ComplaintSettingsScreen(
+                      laundryId: laundryId,
+                      canEdit: canEdit,
+                    ),
+                  ),
+                );
+                onReturn();
+              },
+        icon: const Icon(Icons.tune, size: 18),
+        label: Text(canEdit ? 'ضبطُ الشكاوى' : 'إعداداتُ الشكاوى (عرض)'),
+      ),
+    );
+  }
 }

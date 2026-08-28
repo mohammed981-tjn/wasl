@@ -1472,6 +1472,8 @@ class ComplaintType {
     this.forRole,
     this.suggestedAgainst,
     this.allowsGeneral = false,
+    this.isActive = true,
+    this.sortOrder = 100,
   });
 
   final String id;
@@ -1487,6 +1489,33 @@ class ComplaintType {
   /// هل يُقبل بلا طلب (تذكرةٌ عامّة)؟
   final bool allowsGeneral;
 
+  /// **المعطَّل يبقى صفًّا ولا يُحذف**: حذفُه يُفرغ كلَّ شكوى قديمةٍ تشير
+  /// إليه من معناها. فيختفي من قائمة الاختيار ويبقى في التاريخ.
+  final bool isActive;
+  final int sortOrder;
+
+  ComplaintType copyWith({
+    String? labelAr,
+    String? forRole,
+    String? suggestedAgainst,
+    bool? allowsGeneral,
+    bool? isActive,
+    int? sortOrder,
+    bool clearForRole = false,
+    bool clearSuggested = false,
+  }) =>
+      ComplaintType(
+        id: id,
+        code: code,
+        labelAr: labelAr ?? this.labelAr,
+        forRole: clearForRole ? null : (forRole ?? this.forRole),
+        suggestedAgainst:
+            clearSuggested ? null : (suggestedAgainst ?? this.suggestedAgainst),
+        allowsGeneral: allowsGeneral ?? this.allowsGeneral,
+        isActive: isActive ?? this.isActive,
+        sortOrder: sortOrder ?? this.sortOrder,
+      );
+
   factory ComplaintType.fromMap(Map<String, dynamic> m) => ComplaintType(
         id: m['id'] as String,
         code: m['code'] as String? ?? '',
@@ -1494,6 +1523,71 @@ class ComplaintType {
         forRole: m['for_role'] as String?,
         suggestedAgainst: m['suggested_against'] as String?,
         allowsGeneral: m['allows_general'] as bool? ?? false,
+        isActive: m['is_active'] as bool? ?? true,
+        sortOrder: _int(m['sort_order']),
+      );
+}
+
+/// حدثُ الشكوى الذي يستحقّ رسالة.
+enum ComplaintEvent {
+  opened('opened', 'فُتحت شكوى', 'إلى خدمة العملاء: شكوى جديدة في الطابور'),
+  acknowledged('acknowledged', 'التُقطت', 'إلى الشاكي: قرأها إنسان'),
+  resolved('resolved', 'حُلّت', 'إلى الشاكي — وهي التي تطلب جوابًا'),
+  reopened('reopened', 'ارتدّت', 'إلى خدمة العملاء: الحلّ لم يُقنع صاحبَها'),
+  closedByTimeout(
+      'closed_by_timeout', 'أُغلقت بالصمت', 'إلى الشاكي: إعلامًا لا مفاجأة');
+
+  const ComplaintEvent(this.code, this.label, this.hint);
+  final String code;
+  final String label;
+  final String hint;
+
+  static ComplaintEvent parse(String? v) =>
+      values.firstWhere((e) => e.code == v, orElse: () => ComplaintEvent.opened);
+
+  /// **الحدث الذي يقوم عليه النظام**: بلا رسالته لا يُغلق ملفٌّ بالصمت.
+  bool get isLoadBearing => this == resolved;
+}
+
+/// قالبُ رسالةِ شكوى.
+class ComplaintTemplate {
+  const ComplaintTemplate({
+    required this.id,
+    required this.event,
+    required this.channel,
+    required this.audience,
+    required this.bodyAr,
+    this.titleAr,
+    this.isActive = true,
+  });
+
+  final String id;
+  final ComplaintEvent event;
+  final String channel;
+  final String audience;
+  final String? titleAr;
+  final String bodyAr;
+  final bool isActive;
+
+  ComplaintTemplate copyWith({String? titleAr, String? bodyAr, bool? isActive}) =>
+      ComplaintTemplate(
+        id: id,
+        event: event,
+        channel: channel,
+        audience: audience,
+        titleAr: titleAr ?? this.titleAr,
+        bodyAr: bodyAr ?? this.bodyAr,
+        isActive: isActive ?? this.isActive,
+      );
+
+  factory ComplaintTemplate.fromMap(Map<String, dynamic> m) => ComplaintTemplate(
+        id: m['id'] as String,
+        event: ComplaintEvent.parse(m['event'] as String?),
+        channel: m['channel'] as String? ?? 'in_app',
+        audience: m['audience'] as String? ?? 'customer',
+        titleAr: m['title_ar'] as String?,
+        bodyAr: m['body_ar'] as String? ?? '',
+        isActive: m['is_active'] as bool? ?? true,
       );
 }
 

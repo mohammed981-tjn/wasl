@@ -27,9 +27,21 @@ insert into branches (id, laundry_id, name_ar, location, daily_capacity_pieces)
 values ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111',
         'فرع المركز', st_point(39.6142, 24.4672)::geography, 40);
 
--- يعمل كل يوم ٨ص–١٠م، إلا الجمعة (٥) مغلق
+-- يعمل كل يوم ٨ص–١٠م، ويومٌ واحدٌ مغلق.
+--
+-- **واليومُ المغلق يُحسب ولا يُثبَّت.** كان الجمعةَ ثابتًا، وفحصُ «مهلة
+-- التجهيز» أدناه يسأل عن فتحات **اليوم** — فكان الملفّ يمرّ ستّة أيّامٍ في
+-- الأسبوع ويسقط يوم الجمعة، لأنّ اليوم حينها بلا فتحةٍ أصلًا. واختبارٌ
+-- يتعلّق نجاحُه بيوم تشغيله ليس اختبارًا.
+--
+-- فيُغلق **يومُ غد**: مغلقٌ دائمًا (فيبقى فحص الإغلاق قائمًا)، ومفتوحٌ
+-- اليومُ دائمًا (فيبقى فحص المهلة قائمًا) — أيًّا كان يوم التشغيل.
+create temporary table _t_closed as
+select ((extract(dow from current_date)::int + 1) % 7) as weekday;
+
 insert into branch_hours (branch_id, weekday, opens_at, closes_at, is_closed)
-select '22222222-2222-2222-2222-222222222222', w, '08:00', '22:00', (w = 5)
+select '22222222-2222-2222-2222-222222222222', w, '08:00', '22:00',
+       (w = (select weekday from _t_closed))
 from generate_series(0,6) w;
 
 insert into booking_settings
@@ -54,13 +66,13 @@ insert into profiles (id, phone) values ('a0000000-0000-0000-0000-000000000001',
 create temporary table _t_open as
 select d::date as day
 from generate_series(current_date + 1, current_date + 6, '1 day') d
-where extract(dow from d) <> 5
+where extract(dow from d)::int <> (select weekday from _t_closed)
 limit 1;
 
 create temporary table _t_open2 as
 select d::date as day
 from generate_series(current_date + 1, current_date + 6, '1 day') d
-where extract(dow from d) <> 5
+where extract(dow from d)::int <> (select weekday from _t_closed)
 offset 1 limit 1;
 
 -- ═══ ١) توليد الفتحات من ساعات العمل ═════════════════════════════════════
@@ -80,8 +92,8 @@ select assert_eq(
   (select count(*)::int from available_slots(
      '22222222-2222-2222-2222-222222222222','pickup',
      (select d::date from generate_series(current_date, current_date+7, '1 day') d
-      where extract(dow from d) = 5 limit 1), 1)),
-  0, 'الإغلاق: يوم الجمعة بلا فتحة واحدة');
+      where extract(dow from d)::int = (select weekday from _t_closed) limit 1), 1)),
+  0, 'الإغلاق: اليوم المغلق بلا فتحة واحدة');
 
 -- ═══ ٣) مهلة التجهيز تُغلق ما قرُب ═══════════════════════════════════════
 do $$
@@ -198,7 +210,7 @@ select assert_eq(
 create temporary table _t_day as
 select d::date as day
 from generate_series(current_date + 1, current_date + 6, '1 day') d
-where extract(dow from d) <> 5
+where extract(dow from d)::int <> (select weekday from _t_closed)
 limit 1;
 
 insert into slot_blackouts (branch_id, starts_at, ends_at, reason)
@@ -252,17 +264,32 @@ exception when check_violation then
   raise notice '✓ الحارس: موعدٌ في الماضي مرفوض';
 end $$;
 
--- موعدٌ في يوم الإغلاق
+-- موعدٌ في يوم الإغلاق.
+--
+-- **ويُؤخذ اليومُ من `_t_closed` لا من «الجمعة»**: بعد أن صار المغلق يُحسب،
+-- بقي هذا الفحص يختار الجمعةَ — وهي يومٌ عاملٌ الآن. فكان ينجح **لسببٍ
+-- آخر** (طاقة أو مهلة، وكلاهما `check_violation` أيضًا) ولا يفحص الإغلاق
+-- إطلاقًا. ونجاحٌ لسببٍ غير المقصود أسوأُ من فشل: لا أحد ينظر فيه.
 do $$
-declare v_fri date;
+declare v_closed date; v_ok boolean := false;
 begin
-  select d::date into v_fri from generate_series(current_date+1, current_date+8, '1 day') d
-  where extract(dow from d) = 5 limit 1;
-  update orders set pickup_slot_start = (v_fri + time '10:00')::timestamptz
-  where id = '0dd00000-0000-0000-0000-0000000000f0';
-  raise exception '✗ الحارس: قُبل موعدٌ في يوم إغلاق';
-exception when check_violation then
-  raise notice '✓ الحارس: موعدٌ في يوم الإغلاق مرفوض';
+  select d::date into v_closed
+  from generate_series(current_date+1, current_date+8, '1 day') d
+  where extract(dow from d)::int = (select weekday from _t_closed) limit 1;
+
+  -- الوقتُ ١٠ص بعد أيّامٍ من الآن: بعيدٌ عن مهلة التجهيز، والفتحةُ فارغة.
+  -- فإن رُفض فلسببٍ واحدٍ لا ثالثَ له: الفرعُ مغلقٌ في ذلك اليوم.
+  begin
+    update orders set pickup_slot_start = (v_closed + time '10:00')::timestamptz
+    where id = '0dd00000-0000-0000-0000-0000000000f0';
+  exception when check_violation then
+    v_ok := true;
+  end;
+
+  if not v_ok then
+    raise exception '✗ الحارس: قُبل موعدٌ في يوم إغلاق (%)', v_closed;
+  end if;
+  raise notice '✓ الحارس: موعدٌ في يوم الإغلاق مرفوض (%)', v_closed;
 end $$;
 
 -- وموعدٌ صحيح يُقبل. الطلب حِمله ٣٨ قطعة، فيحتاج فتحةً وطاقةً تتّسعان —

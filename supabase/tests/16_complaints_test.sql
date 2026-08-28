@@ -955,4 +955,141 @@ select assert_eq(
   'queued'::notification_status,
   'داخل التطبيق: تصل بلا مزوّدٍ خارجيّ — والسؤالُ يبلغ ولو لم يُضبط مفتاح');
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- الضبط من اللوحة — وحدودُه
+-- ═══════════════════════════════════════════════════════════════════════════
+-- **قاعدةُ عملٍ لا تُضبط إلا بـSQL ليست مضبوطةً من الإدارة.** ويُختبر هنا
+-- أنّ مدير المغسلة يضبطها، وأنّ حدودَه لا تتجاوز مغسلتَه.
+
+-- مغسلةٌ ثانية ومديرُها — لاختبار الحدّ.
+select auth.logout();
+set local role postgres;
+insert into laundries (id, name_ar, slug)
+values ('44444444-4444-4444-4444-444444444444','مغسلةٌ أخرى','other');
+insert into branches (id, laundry_id, name_ar, location)
+values ('55555555-5555-5555-5555-555555555555','44444444-4444-4444-4444-444444444444',
+        'فرعُ الأخرى', st_point(39.60,24.47)::geography);
+insert into auth.users (id, phone) values
+  ('a0000000-0000-0000-0000-000000000007','+966500000007');
+insert into profiles (id, phone) values
+  ('a0000000-0000-0000-0000-000000000007','+966500000007');
+insert into user_roles (user_id, role, laundry_id, branch_id) values
+  ('a0000000-0000-0000-0000-000000000007','branch_manager',
+   '44444444-4444-4444-4444-444444444444','55555555-5555-5555-5555-555555555555');
+
+-- ═══ ٢٩) مديرُ المغسلة يضبط مُهَلَها ════════════════════════════════════
+set local role authenticated;
+select auth.login_as('a0000000-0000-0000-0000-000000000002');   -- مدير «وصل»
+
+update complaint_settings set window_hours = 96, auto_close_days = 5
+where laundry_id = '11111111-1111-1111-1111-111111111111';
+
+select assert_eq(
+  (select window_hours from complaint_settings
+   where laundry_id = '11111111-1111-1111-1111-111111111111'),
+  96, 'الضبط: مديرُ المغسلة يعدّل مُهَلَها — لا مالكُ المنصّة وحده');
+
+-- ═══ ٣٠) ولا يمسّ مغسلةً غيرها ══════════════════════════════════════════
+-- **وهذا هو الحدّ الذي يجب أن يُختبر**: توسيعُ الكتابة بلا حدٍّ يجعل كلَّ
+-- مديرٍ يضبط مُهَل الجميع.
+select expect_no_rows($$
+  update complaint_settings set window_hours = 1
+  where laundry_id = '44444444-4444-4444-4444-444444444444'
+$$, 'الحدّ: مديرٌ لا يضبط مُهَل مغسلةٍ لا يديرها');
+
+select expect_denied($$
+  insert into complaint_types (laundry_id, code, label_ar)
+  values ('44444444-4444-4444-4444-444444444444','sneaky','نوعٌ مدسوس')
+$$, 'الحدّ: ولا يزرع نوعًا في قائمة غيره');
+
+select expect_denied($$
+  insert into complaint_templates (laundry_id, event, channel, audience, body_ar)
+  values ('44444444-4444-4444-4444-444444444444','resolved','in_app','customer','نصٌّ مدسوس')
+$$, 'الحدّ: ولا قالبَ رسالةٍ في مغسلةٍ أخرى');
+
+-- ═══ ٣١) وخدمةُ العملاء تعالج ولا تُشرّع ════════════════════════════════
+-- **من يملك تمديد مهلة التأكيد يملك إغلاق ما يشاء بالصمت.**
+select auth.login_as('a0000000-0000-0000-0000-000000000005');
+select expect_no_rows($$
+  update complaint_settings set auto_close_days = 1
+  where laundry_id = '11111111-1111-1111-1111-111111111111'
+$$, 'الفصل: خدمةُ العملاء تعالج الشكاوى ولا تُعدّل قواعدَها');
+
+-- ═══ ٣٢) والنوعُ يُعطَّل ولا يُحذف إن استُعمل ═══════════════════════════
+select auth.login_as('a0000000-0000-0000-0000-000000000002');
+select expect_denied($$
+  delete from complaint_types
+  where laundry_id = '11111111-1111-1111-1111-111111111111'
+    and code = 'stain_remains'
+$$, 'التاريخ: نوعٌ استُعمل لا يُحذف — والحذفُ يُفرغ شكاوى قديمةً من معناها');
+
+update complaint_types set is_active = false
+where laundry_id = '11111111-1111-1111-1111-111111111111' and code = 'stain_remains';
+select assert_eq(
+  (select is_active from complaint_types
+   where laundry_id = '11111111-1111-1111-1111-111111111111' and code = 'stain_remains'),
+  false, 'التعطيل: البديلُ الصحيح — يختفي من القائمة ويبقى في التاريخ');
+
+-- ونوعٌ لم يُستعمل يُحذف بلا مانع.
+insert into complaint_types (laundry_id, code, label_ar)
+values ('11111111-1111-1111-1111-111111111111','unused','نوعٌ لم يُستعمل');
+delete from complaint_types
+where laundry_id = '11111111-1111-1111-1111-111111111111' and code = 'unused';
+select assert_eq(
+  (select count(*)::int from complaint_types
+   where laundry_id = '11111111-1111-1111-1111-111111111111' and code = 'unused'),
+  0, 'الحذف: ما لم يُستعمل يُحذف — الحراسةُ على المعنى لا على الحركة');
+
+-- ═══ ٣٣) والرمزُ لا يتبدّل تحت شكوى قائمة ═══════════════════════════════
+-- **الرمزُ يُجمَّع عليه في التقارير**، وتبديلُه على نوعٍ استُعمل يجعل تقريرَ
+-- الشهر الماضي يقول شيئًا غير الذي وقع.
+select expect_denied($$
+  update complaint_types set code = 'renamed'
+  where laundry_id = '11111111-1111-1111-1111-111111111111'
+    and code = 'stain_remains'
+$$, 'التقرير: رمزُ نوعٍ استُعمل لا يُبدَّل');
+
+-- والاسمُ المعروض يُعدَّل بحرّيّة: صياغةٌ تُحسَّن لا هُويّةٌ تُبدَّل.
+update complaint_types set label_ar = 'بقعةٌ لم تُزَل تمامًا'
+where laundry_id = '11111111-1111-1111-1111-111111111111' and code = 'stain_remains';
+select assert_eq(
+  (select label_ar from complaint_types
+   where laundry_id = '11111111-1111-1111-1111-111111111111' and code = 'stain_remains'),
+  'بقعةٌ لم تُزَل تمامًا',
+  'الصياغة: الاسمُ المعروض يُحسَّن — والرمزُ تحته ثابت');
+
+-- ═══ ٣٤) ولا يُنقل صفٌّ من مغسلةٍ إلى أخرى ══════════════════════════════
+select expect_denied($$
+  update complaint_types set laundry_id = '44444444-4444-4444-4444-444444444444'
+  where laundry_id = '11111111-1111-1111-1111-111111111111' and code = 'other'
+$$, 'النقل: نوعٌ لا يُهاجر إلى مغسلةٍ أخرى');
+
+select expect_denied($$
+  update complaint_templates set laundry_id = '44444444-4444-4444-4444-444444444444'
+  where laundry_id = '11111111-1111-1111-1111-111111111111' and event = 'resolved'
+$$, 'النقل: ولا قالبُ رسالة');
+
+-- ═══ ٣٥) والقالبُ يُحرَّر فعلًا — لا يُقرأ فقط ══════════════════════════
+update complaint_templates
+set body_ar = 'قرارُنا: {ردّ_الإدارة}. أخبرنا إن كان يكفي خلال {مهلة_التأكيد} أيّام.'
+where laundry_id = '11111111-1111-1111-1111-111111111111'
+  and event = 'resolved' and channel = 'in_app';
+
+select assert_eq(
+  (select body_ar like 'قرارُنا:%' from complaint_templates
+   where laundry_id = '11111111-1111-1111-1111-111111111111'
+     and event = 'resolved' and channel = 'in_app'),
+  true, 'التحرير: نصُّ الرسالة يُعدَّل من اللوحة — بلا إصدار تطبيق');
+
+-- ═══ ٣٦) والزائرُ لا يكتب شيئًا من هذا ══════════════════════════════════
+select auth.logout();
+set local role anon;
+select expect_no_rows($$
+  update complaint_settings set window_hours = 1
+  where laundry_id = '11111111-1111-1111-1111-111111111111'
+$$, 'الزائر: لا يمسّ إعداداتٍ ولا قوالب');
+
+set local role postgres;
+select auth.logout();
+
 rollback;
